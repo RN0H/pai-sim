@@ -8,6 +8,10 @@ import type { Sim } from "../physics/engine";
 // Let physics catch up on slow frames (low-end devices render at ~5-10 fps),
 // but cap it so a backgrounded tab doesn't trigger a huge burst of steps.
 const MAX_FRAME_SECONDS = 0.25;
+// Hard cap on physics steps per frame. A user model with a tiny timestep
+// (e.g. 0.0001 s) would otherwise need thousands of steps per frame and could
+// lock the tab on a slow device; past the cap it simply runs slower than real time.
+export const MAX_STEPS_PER_FRAME = 1000;
 
 export interface LoopStats {
   fps: number;
@@ -45,12 +49,16 @@ export class SimLoop {
       if (!this.paused) {
         this.accum += dt;
         const h = this.sim.timestep;
-        while (this.accum >= h) {
+        let steps = 0;
+        while (this.accum >= h && steps < MAX_STEPS_PER_FRAME) {
           this.beforeStep(this.sim);
           this.sim.step();
           this.accum -= h;
           this.simTimeWindow += h;
+          steps++;
         }
+        if (steps === MAX_STEPS_PER_FRAME) this.accum = 0; // drop the backlog
+
       }
       this.onFrame(this.sim);
       this.frames++;

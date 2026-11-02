@@ -1,0 +1,5 @@
+<mujoco model="broken">
+  <worldbody>
+    <geom type="nope" size="0.1"/>
+  </worldbody>
+</mujoco>

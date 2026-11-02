@@ -36,6 +36,37 @@ export interface GeomInfo {
   size: [number, number, number];
   rgba: [number, number, number, number];
   bodyId: number;
+  /** Visibility group (0-5). MuJoCo's viewer hides groups 3+ by default (often collision geoms). */
+  group: number;
+  /** Mesh id for MESH geoms (MuJoCo `geom_dataid`), otherwise -1. */
+  meshId: number;
+}
+
+/** Triangle mesh in the geom's local frame (MuJoCo re-centres mesh vertices). */
+export interface MeshData {
+  /** xyz triples. */
+  vertices: Float32Array;
+  /** Vertex index triples (counter-clockwise, outward-facing). */
+  faces: Uint32Array;
+}
+
+/** MuJoCo's default geom colour; a geom with this rgba and a material takes the material's colour. */
+const DEFAULT_GEOM_RGBA = [0.5, 0.5, 0.5, 1];
+
+/**
+ * Turn a MuJoCo loading error into a short, human-readable message.
+ * MuJoCo errors look like "MuJoCo Error: Loading error: XML Error: ...".
+ */
+export function friendlyLoadError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  const text = raw
+    .replace(/^(\s*(MuJoCo Error|Loading error|Error)\s*:\s*)+/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (/XML_ERROR|XML parse error/i.test(text)) return "This file isn't valid XML (check for a typo or a missing closing tag).";
+  if (/Error opening file|resource not found|could not open/i.test(text))
+    return `This model refers to another file that isn't available: ${text}. Only single-file MJCF models are supported for now.`;
+  return text || "This model could not be loaded.";
 }
 
 export class Sim {
@@ -49,8 +80,35 @@ export class Sim {
     readonly xml: string,
   ) {
     this.model = mj.MjModel.from_xml_string(xml);
-    this.data = new mj.MjData(this.model);
-    mj.mj_forward(this.model, this.data);
+    try {
+      this.data = new mj.MjData(this.model);
+    } catch (err) {
+      this.model.delete(); // don't leak the model if the data can't be made
+      throw err;
+    }
+    try {
+      mj.mj_forward(this.model, this.data);
+    } catch (err) {
+      this.data.delete();
+      this.model.delete();
+      throw err;
+    }
+  }
+
+  /** The `<mujoco model="...">` name (MuJoCo uses "MuJoCo Model" if none is given). */
+  get modelName(): string {
+    return this.nameAt(0);
+  }
+
+  /**
+   * Read a NUL-terminated name from MuJoCo's `names` buffer. We read the buffer
+   * directly because `mj_id2name` returns garbage (not null) for unnamed objects.
+   */
+  private nameAt(adr: number): string {
+    const names = this.model.names;
+    let end = adr;
+    while (end < names.length && names[end] !== 0) end++;
+    return new TextDecoder().decode(Uint8Array.from(names.subarray(adr, end)));
   }
 
   get timestep(): number {
@@ -89,16 +147,76 @@ export class Sim {
       out.push({
         type: model.geom_type[i]!,
         size: [model.geom_size[3 * i]!, model.geom_size[3 * i + 1]!, model.geom_size[3 * i + 2]!],
-        rgba: [
-          model.geom_rgba[4 * i]!,
-          model.geom_rgba[4 * i + 1]!,
-          model.geom_rgba[4 * i + 2]!,
-          model.geom_rgba[4 * i + 3]!,
-        ],
+        rgba: this.geomColor(i),
         bodyId: model.geom_bodyid[i]!,
+        group: model.geom_group[i]!,
+        meshId: model.geom_type[i] === GeomType.MESH ? model.geom_dataid[i]! : -1,
       });
     }
     return out;
+  }
+
+  /**
+   * Effective colour of geom `i`: its own rgba, or its material's when the geom
+   * keeps MuJoCo's default rgba (this mirrors MuJoCo's own viewer).
+   */
+  private geomColor(i: number): [number, number, number, number] {
+    const { model } = this;
+    const own: [number, number, number, number] = [
+      model.geom_rgba[4 * i]!,
+      model.geom_rgba[4 * i + 1]!,
+      model.geom_rgba[4 * i + 2]!,
+      model.geom_rgba[4 * i + 3]!,
+    ];
+    const mat = model.geom_matid[i]!;
+    const isDefault = own.every((v, k) => Math.abs(v - DEFAULT_GEOM_RGBA[k]!) < 1e-6);
+    if (mat < 0 || !isDefault) return own;
+    const m = model.mat_rgba;
+    return [m[4 * mat]!, m[4 * mat + 1]!, m[4 * mat + 2]!, m[4 * mat + 3]!];
+  }
+
+  /** Vertices and triangles of mesh `meshId` (copied out of WASM memory). */
+  meshData(meshId: number): MeshData {
+    const { model } = this;
+    if (meshId < 0 || meshId >= model.nmesh) throw new RangeError(`no mesh ${meshId}`);
+    const va = model.mesh_vertadr[meshId]!;
+    const vn = model.mesh_vertnum[meshId]!;
+    const fa = model.mesh_faceadr[meshId]!;
+    const fn = model.mesh_facenum[meshId]!;
+    return {
+      vertices: Float32Array.from(model.mesh_vert.subarray(3 * va, 3 * (va + vn))),
+      faces: Uint32Array.from(model.mesh_face.subarray(3 * fa, 3 * (fa + fn))),
+    };
+  }
+
+  /** Names of all actuators, in id order ("" for unnamed ones). */
+  actuatorNames(): string[] {
+    const out: string[] = [];
+    for (let i = 0; i < this.model.nu; i++) out.push(this.nameAt(this.model.name_actuatoradr[i]!));
+    return out;
+  }
+
+  /** Id of the actuator called `name`, or -1. Allocates no Embind handles. */
+  actuatorId(name: string): number {
+    return this.actuatorNames().indexOf(name);
+  }
+
+  /** Id of the body called `name`, or -1. Allocates no Embind handles. */
+  bodyId(name: string): number {
+    for (let i = 0; i < this.model.nbody; i++) if (this.nameAt(this.model.name_bodyadr[i]!) === name) return i;
+    return -1;
+  }
+
+  /** True if the model has a differential drive: actuators named `left` and `right`. */
+  hasDifferentialDrive(): boolean {
+    const names = this.actuatorNames();
+    return names.includes("left") && names.includes("right");
+  }
+
+  /** Centre and size of the model (MuJoCo's `stat`), for framing the camera. */
+  bounds(): { center: [number, number, number]; extent: number } {
+    const c = this.model.stat.center;
+    return { center: [c[0]!, c[1]!, c[2]!], extent: this.model.stat.extent };
   }
 
   /** True if any state value is NaN or infinite (the sim has blown up). */

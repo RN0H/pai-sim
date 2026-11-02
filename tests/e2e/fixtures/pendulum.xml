@@ -1,0 +1,24 @@
+<!-- A user-style single-file MJCF model: a double pendulum with a mesh bob. -->
+<mujoco model="fixture pendulum">
+  <option timestep="0.002" integrator="implicitfast"/>
+  <asset>
+    <material name="bob" rgba="0.3 0.75 0.4 1"/>
+    <mesh name="octa" vertex="0.08 0 0 -0.08 0 0 0 0.08 0 0 -0.08 0 0 0 0.08 0 0 -0.08"/>
+  </asset>
+  <worldbody>
+    <light pos="0 0 3" dir="0 0 -1"/>
+    <geom type="plane" size="2 2 0.1" rgba="0.85 0.88 0.9 1"/>
+    <geom type="box" pos="0 0 1.2" size="0.3 0.05 0.03" rgba="0.3 0.3 0.35 1"/>
+    <body name="link1" pos="0 0 1.17">
+      <joint name="j1" type="hinge" axis="0 1 0" damping="0.02"/>
+      <geom type="capsule" fromto="0 0 0 0.3 0 -0.2" size="0.02" rgba="0.9 0.5 0.2 1"/>
+      <body name="link2" pos="0.3 0 -0.2">
+        <joint name="j2" type="hinge" axis="0 1 0" damping="0.02"/>
+        <geom type="capsule" fromto="0 0 0 0 0 -0.3" size="0.015" rgba="0.9 0.5 0.2 1"/>
+        <geom name="bob" type="mesh" mesh="octa" pos="0 0 -0.3" material="bob"/>
+        <!-- Collision proxy in group 3: hidden, like in MuJoCo's own viewer. -->
+        <geom name="bob_collision" type="sphere" pos="0 0 -0.3" size="0.12" group="3" rgba="1 0 1 1"/>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>
