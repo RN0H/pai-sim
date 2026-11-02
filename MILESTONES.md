@@ -25,14 +25,14 @@ Rules for agents (see `CLAUDE.md`):
 - [x] Browser tests: loads without errors, drives (API + keyboard), perf budget, phone layout, screenshots
 - [x] CI runs typecheck, unit, build and browser tests on every PR
 
-## M1 — Load and render any MJCF
+## M1 — Load and render any MJCF ✅
 
 Goal: the viewer is a general MuJoCo viewer, not just one scene.
 
-- [ ] Renderer supports `mesh` geoms (build `BufferGeometry` from `model.mesh_vert` / `mesh_face`) and per-geom materials/colors
-- [ ] Bundled sample scenes: hello rover, a 2-link arm, a cart-pole; a scene picker in the header (`?scene=<id>` in the URL selects one)
-- [ ] Load a user's single-file MJCF (`.xml`) by file picker and drag-and-drop; show a friendly error (not a crash) for invalid files
-- [ ] Drive pad only appears when the scene has `left`/`right` actuators
+- [x] Renderer supports `mesh` geoms (build `BufferGeometry` from `model.mesh_vert` / `mesh_face`) and per-geom materials/colors
+- [x] Bundled sample scenes: hello rover, a 2-link arm, a cart-pole; a scene picker in the header (`?scene=<id>` in the URL selects one)
+- [x] Load a user's single-file MJCF (`.xml`) by file picker and drag-and-drop; show a friendly error (not a crash) for invalid files
+- [x] Drive pad only appears when the scene has `left`/`right` actuators
 - **Acceptance:** e2e loads every bundled scene with no console errors and ≥ 80% real time; e2e loads a fixture `.xml` through the file input; an invalid file shows an error message and the previous scene keeps running; unit test that each bundled scene compiles and stays stable for 5 s.
 
 ## M2 — Parts → MJCF compiler
@@ -95,3 +95,9 @@ real hardware.
 ## Progress notes
 
 _(Agents: add dated notes here when stopping partway through a milestone.)_
+
+- 2026-11-02 (M1): done. Notes for later milestones: only single-file MJCF
+  works (meshes must be inline `vertex=`; `file=` references give a friendly
+  "another file" error). Height fields are not drawn yet. `Sim.actuatorNames()`
+  reads MuJoCo's `names` buffer because `mj_id2name` returns garbage for
+  unnamed objects in the WASM build.

@@ -6,6 +6,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GeomType, type GeomInfo, type Sim } from "../physics/engine";
+import { meshGeometry } from "./meshGeometry";
 
 const INFINITE_PLANE_HALF_SIZE = 25;
 const GRID_CELL_METERS = 0.5;
@@ -28,7 +29,7 @@ function makeGridTexture(): THREE.Texture {
   return tex;
 }
 
-function geometryFor(g: GeomInfo): THREE.BufferGeometry | null {
+function geometryFor(g: GeomInfo, sim: Sim): THREE.BufferGeometry | null {
   const [a, b, c] = g.size;
   switch (g.type) {
     case GeomType.PLANE: {
@@ -56,8 +57,10 @@ function geometryFor(g: GeomInfo): THREE.BufferGeometry | null {
       s.rotateX(Math.PI / 2);
       return s;
     }
+    case GeomType.MESH:
+      return g.meshId >= 0 ? meshGeometry(sim.meshData(g.meshId)) : null;
     default:
-      return null; // meshes / heightfields: later milestone
+      return null; // heightfields: not drawn yet
   }
 }
 
@@ -92,6 +95,9 @@ export class SceneRenderer {
     sun.position.set(3, 6, 2);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
+    // Without a bias, flat faces (e.g. mesh hulls) shadow themselves in stripes.
+    sun.shadow.bias = -0.0005;
+    sun.shadow.normalBias = 0.01;
     const sc = sun.shadow.camera;
     sc.left = sc.bottom = -4;
     sc.right = sc.top = 4;
@@ -115,7 +121,7 @@ export class SceneRenderer {
     }
     this.meshes = [];
     sim.geoms().forEach((g, index) => {
-      const geometry = geometryFor(g);
+      const geometry = geometryFor(g, sim);
       if (!geometry || g.rgba[3] === 0) return;
       const material = new THREE.MeshStandardMaterial({
         color: new THREE.Color(g.rgba[0], g.rgba[1], g.rgba[2]),
@@ -123,6 +129,9 @@ export class SceneRenderer {
         opacity: g.rgba[3],
         roughness: g.type === GeomType.PLANE ? 0.95 : 0.55,
         metalness: 0.05,
+        // Plane geoms are one-sided in MuJoCo; meshes from user files can
+        // have inconsistent winding, so draw both faces to avoid holes.
+        side: g.type === GeomType.MESH ? THREE.DoubleSide : THREE.FrontSide,
       });
       if (g.type === GeomType.PLANE && geometry instanceof THREE.PlaneGeometry) {
         const tex = makeGridTexture();
@@ -156,6 +165,31 @@ export class SceneRenderer {
       );
       mesh.matrix.copy(m);
     }
+  }
+
+  /** Number of geoms currently drawn. */
+  get drawnCount(): number {
+    return this.meshes.length;
+  }
+
+  /** Point the camera at a model so the whole thing is in view. */
+  frame(sim: Sim): void {
+    const { center, extent } = sim.bounds();
+    // MuJoCo z-up (x, y, z) -> Three y-up (x, z, -y).
+    const target = new THREE.Vector3(center[0], center[2], -center[1]);
+    // Fit a sphere around the model in the narrower of the two fields of view,
+    // so tall phone screens don't crop it sideways.
+    const vfov = THREE.MathUtils.degToRad(this.camera.fov);
+    const hfov = 2 * Math.atan(Math.tan(vfov / 2) * this.camera.aspect);
+    const radius = 0.6 * extent;
+    const dist = Math.min(Math.max(radius / Math.sin(Math.min(vfov, hfov) / 2), 1.2), 30);
+    const dir = new THREE.Vector3(1, 0.75, 1).normalize();
+    this.controls.target.copy(target);
+    this.camera.position.copy(target).addScaledVector(dir, dist);
+    this.camera.near = Math.max(0.005, dist / 500);
+    this.camera.far = Math.max(100, dist * 20);
+    this.camera.updateProjectionMatrix();
+    this.controls.update();
   }
 
   /**
