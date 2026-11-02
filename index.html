@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Build, run and share robots in your browser. No install." />
+    <title>PAI Sim</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='5' y='9' width='22' height='12' rx='3' fill='%23293040'/><circle cx='10' cy='23' r='4' fill='%23e9733f'/><circle cx='22' cy='23' r='4' fill='%23e9733f'/></svg>" />
+  </head>
+  <body>
+    <header class="bar">
+      <div class="brand">PAI&nbsp;Sim <span class="tag">preview</span></div>
+      <div id="hud" class="hud" aria-live="off"></div>
+      <div class="actions">
+        <button id="pause" type="button">Pause</button>
+        <button id="reset" type="button">Reset</button>
+      </div>
+    </header>
+    <main id="viewport" class="viewport">
+      <p id="status" class="status">Loading…</p>
+      <div class="pad" aria-label="Drive controls">
+        <button type="button" data-key="arrowup" aria-label="Forward">▲</button>
+        <button type="button" data-key="arrowleft" aria-label="Turn left">◀</button>
+        <button type="button" data-key="arrowdown" aria-label="Reverse">▼</button>
+        <button type="button" data-key="arrowright" aria-label="Turn right">▶</button>
+      </div>
+      <p class="hint">Drive the rover with arrow keys or WASD · drag to orbit · scroll to zoom</p>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
