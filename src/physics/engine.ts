@@ -36,6 +36,8 @@ export interface GeomInfo {
   size: [number, number, number];
   rgba: [number, number, number, number];
   bodyId: number;
+  /** Visibility group (0-5). MuJoCo's viewer hides groups 3+ by default (often collision geoms). */
+  group: number;
   /** Mesh id for MESH geoms (MuJoCo `geom_dataid`), otherwise -1. */
   meshId: number;
 }
@@ -78,8 +80,19 @@ export class Sim {
     readonly xml: string,
   ) {
     this.model = mj.MjModel.from_xml_string(xml);
-    this.data = new mj.MjData(this.model);
-    mj.mj_forward(this.model, this.data);
+    try {
+      this.data = new mj.MjData(this.model);
+    } catch (err) {
+      this.model.delete(); // don't leak the model if the data can't be made
+      throw err;
+    }
+    try {
+      mj.mj_forward(this.model, this.data);
+    } catch (err) {
+      this.data.delete();
+      this.model.delete();
+      throw err;
+    }
   }
 
   /** The `<mujoco model="...">` name (MuJoCo uses "MuJoCo Model" if none is given). */
@@ -136,6 +149,7 @@ export class Sim {
         size: [model.geom_size[3 * i]!, model.geom_size[3 * i + 1]!, model.geom_size[3 * i + 2]!],
         rgba: this.geomColor(i),
         bodyId: model.geom_bodyid[i]!,
+        group: model.geom_group[i]!,
         meshId: model.geom_type[i] === GeomType.MESH ? model.geom_dataid[i]! : -1,
       });
     }
@@ -180,6 +194,17 @@ export class Sim {
     const out: string[] = [];
     for (let i = 0; i < this.model.nu; i++) out.push(this.nameAt(this.model.name_actuatoradr[i]!));
     return out;
+  }
+
+  /** Id of the actuator called `name`, or -1. Allocates no Embind handles. */
+  actuatorId(name: string): number {
+    return this.actuatorNames().indexOf(name);
+  }
+
+  /** Id of the body called `name`, or -1. Allocates no Embind handles. */
+  bodyId(name: string): number {
+    for (let i = 0; i < this.model.nbody; i++) if (this.nameAt(this.model.name_bodyadr[i]!) === name) return i;
+    return -1;
   }
 
   /** True if the model has a differential drive: actuators named `left` and `right`. */

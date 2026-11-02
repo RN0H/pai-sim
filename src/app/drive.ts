@@ -20,7 +20,15 @@ export class DriveInput {
 
   constructor(target: Window = window) {
     target.addEventListener("keydown", (e) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      // Leave arrow keys to form controls (e.g. the scene picker) and editors.
+      const t = e.target;
+      if (
+        t instanceof HTMLInputElement ||
+        t instanceof HTMLTextAreaElement ||
+        t instanceof HTMLSelectElement ||
+        (t instanceof HTMLElement && t.isContentEditable)
+      )
+        return;
       if (this.isDriveKey(e.key)) {
         this.held.add(e.key.toLowerCase());
         e.preventDefault();

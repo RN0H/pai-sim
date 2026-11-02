@@ -10,6 +10,7 @@ import { meshGeometry } from "./meshGeometry";
 
 const INFINITE_PLANE_HALF_SIZE = 25;
 const GRID_CELL_METERS = 0.5;
+const HIDDEN_GROUP_START = 3;
 
 /** A tileable grid texture: one cell per tile, with a thin line on two edges. */
 function makeGridTexture(): THREE.Texture {
@@ -121,8 +122,11 @@ export class SceneRenderer {
     }
     this.meshes = [];
     sim.geoms().forEach((g, index) => {
+      // Skip invisible geoms and groups 3+ (hidden by default in MuJoCo's own
+      // viewer; real-world models keep their collision geoms there).
+      if (g.rgba[3] === 0 || g.group >= HIDDEN_GROUP_START) return;
       const geometry = geometryFor(g, sim);
-      if (!geometry || g.rgba[3] === 0) return;
+      if (!geometry) return;
       const material = new THREE.MeshStandardMaterial({
         color: new THREE.Color(g.rgba[0], g.rgba[1], g.rgba[2]),
         transparent: g.rgba[3] < 1,

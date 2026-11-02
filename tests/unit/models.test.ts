@@ -82,6 +82,15 @@ describe("mesh geoms", () => {
   });
 });
 
+describe("geom groups", () => {
+  it("reports each geom's visibility group", () => {
+    const sim = make(`<mujoco><worldbody>
+      <geom type="sphere" size="0.1"/><geom type="sphere" size="0.1" group="3"/>
+    </worldbody></mujoco>`);
+    expect(sim.geoms().map((g) => g.group)).toEqual([0, 3]);
+  });
+});
+
 describe("materials and colours", () => {
   it("geoms with the default rgba take their material's colour", () => {
     const [m, own, plain] = make(TETRA).geoms();
@@ -104,6 +113,17 @@ describe("names", () => {
       <actuator><motor joint="j"/><motor name="b" joint="j"/></actuator></mujoco>`);
     expect(sim.actuatorNames()).toEqual(["", "b"]);
     expect(sim.hasDifferentialDrive()).toBe(false);
+  });
+
+  it("looks up actuator and body ids by name without Embind accessors", () => {
+    const sim = make(`
+      <mujoco><worldbody><body name="base"><joint name="j"/><geom size=".1"/></body></worldbody>
+      <actuator><motor joint="j"/><motor name="b" joint="j"/></actuator></mujoco>`);
+    expect(sim.actuatorId("b")).toBe(1);
+    expect(sim.actuatorId("nope")).toBe(-1);
+    expect(sim.bodyId("base")).toBe(sim.model.nbody - 1);
+    expect(sim.bodyId("world")).toBe(0);
+    expect(sim.bodyId("nope")).toBe(-1);
   });
 
   it("detects a differential drive by actuator names", () => {

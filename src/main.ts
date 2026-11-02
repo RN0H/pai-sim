@@ -107,8 +107,14 @@ async function main(): Promise<void> {
 
     const showError = (msg: string) => {
       lastError = msg;
-      errorText.textContent = msg;
-      errorBox.hidden = false;
+      // Clear first so screen readers re-announce a repeated message.
+      errorText.textContent = "";
+      errorBox.hidden = true;
+      requestAnimationFrame(() => {
+        if (lastError !== msg) return; // dismissed or replaced meanwhile
+        errorText.textContent = msg;
+        errorBox.hidden = false;
+      });
     };
     const clearError = () => {
       lastError = null;
@@ -120,7 +126,7 @@ async function main(): Promise<void> {
       const hasDrive = cur.drive !== null;
       pad.hidden = !hasDrive;
       hint.textContent = hasDrive
-        ? "Drive the rover with arrow keys or WASD · drag to orbit · scroll to zoom"
+        ? "Drive with arrow keys or WASD · drag to orbit · scroll to zoom"
         : "Drag to orbit · scroll to zoom";
       if (cur.sceneId === "custom") {
         let opt = picker.querySelector<HTMLOptionElement>(`option[value="${CUSTOM_OPTION}"]`);
@@ -137,6 +143,11 @@ async function main(): Promise<void> {
      * Swap in a new model. Returns false (and keeps the old scene running) if
      * MuJoCo rejects the XML.
      */
+    let customXml: string | null = null;
+    // Bumped by every load request so a slow file read can't overwrite a
+    // scene the user picked afterwards.
+    let loadSeq = 0;
+
     const loadXml = (xml: string, sceneId: string): boolean => {
       let sim: Sim;
       try {
@@ -166,22 +177,39 @@ async function main(): Promise<void> {
     };
 
     picker.addEventListener("change", () => {
-      if (picker.value === CUSTOM_OPTION) return;
+      loadSeq++;
+      if (picker.value === CUSTOM_OPTION) {
+        // Re-open the last file the user loaded.
+        if (customXml && loadXml(customXml, "custom")) setSceneParam(null);
+        else syncUi();
+        return;
+      }
       const scene = findScene(picker.value);
       if (loadXml(scene.xml, scene.id)) setSceneParam(scene.id);
     });
 
     const openFile = async (file: File) => {
+      const seq = ++loadSeq;
       if (file.size > MAX_FILE_BYTES) {
         showError(`"${file.name}" is too big (${(file.size / 1e6).toFixed(1)} MB). Single-file MJCF models are usually under 1 MB.`);
         return;
       }
-      const text = await file.text();
+      let text: string;
+      try {
+        text = await file.text();
+      } catch {
+        showError(`"${file.name}" couldn't be read. Try opening it again.`);
+        return;
+      }
+      if (seq !== loadSeq) return; // the user picked something else meanwhile
       if (!/<mujoco[\s>]/i.test(text)) {
         showError(`"${file.name}" doesn't look like a MuJoCo model: it has no <mujoco> element.`);
         return;
       }
-      if (loadXml(text, "custom")) setSceneParam(null);
+      if (loadXml(text, "custom")) {
+        customXml = text;
+        setSceneParam(null);
+      }
     };
 
     const fileInput = $<HTMLInputElement>("#file-input");
@@ -242,7 +270,8 @@ async function main(): Promise<void> {
       time: () => cur.sim.time,
       stats: () => ({ ...loop.stats, lowQuality: view.isLowQuality }),
       bodyPos: (name: string) => {
-        const id = cur.sim.model.body(name).id;
+        const id = cur.sim.bodyId(name);
+        if (id < 0) throw new Error(`no body named "${name}"`);
         const p = cur.sim.data.xpos;
         return [p[3 * id]!, p[3 * id + 1]!, p[3 * id + 2]!];
       },
@@ -267,9 +296,9 @@ async function main(): Promise<void> {
 }
 
 function makeCurrent(sim: Sim, sceneId: string): Current {
-  const drive = sim.hasDifferentialDrive()
-    ? { left: sim.model.actuator("left").id, right: sim.model.actuator("right").id }
-    : null;
+  const left = sim.actuatorId("left");
+  const right = sim.actuatorId("right");
+  const drive = left >= 0 && right >= 0 ? { left, right } : null;
   return { sim, sceneId, drive };
 }
 

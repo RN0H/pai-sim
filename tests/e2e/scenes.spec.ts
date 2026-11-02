@@ -60,6 +60,21 @@ test("drive pad only shows for scenes with left/right actuators", async ({ page 
   await expect(page.locator("#drive-pad")).toBeVisible();
 });
 
+test("scene picker works from the keyboard without driving the rover", async ({ page }) => {
+  await openSim(page);
+  await page.waitForTimeout(300);
+  const [x0] = await page.evaluate(() => window.__paiSim.bodyPos("rover"));
+  await page.locator("#scene-picker").focus();
+  await page.keyboard.press("ArrowDown");
+  await expect.poll(() => page.evaluate(() => window.__paiSim.scene())).toBe("arm");
+  await page.keyboard.press("ArrowUp");
+  await expect.poll(() => page.evaluate(() => window.__paiSim.scene())).toBe("hello");
+  // The fresh hello rover hasn't been driven by those arrow presses.
+  await page.waitForTimeout(300);
+  const [x1] = await page.evaluate(() => window.__paiSim.bodyPos("rover"));
+  expect(Math.abs(x1 - x0)).toBeLessThan(0.05);
+});
+
 test("scene picker switches scenes and updates the URL", async ({ page }) => {
   const errors = await openSim(page);
   expect(await page.evaluate(() => window.__paiSim.scene())).toBe("hello");
@@ -91,6 +106,8 @@ test("opens a user's .xml through the file input", async ({ page }) => {
   await expect(page.locator("#scene-picker option:checked")).toHaveText(/fixture pendulum/);
   await expect(page.locator("#drive-pad")).toBeHidden();
   await expect(page.locator("#load-error")).toBeHidden();
+  // plane, beam, 2 capsules, mesh bob; the group-3 collision sphere is hidden.
+  expect(await page.evaluate(() => window.__paiSim.drawnGeoms())).toBe(5);
   // It simulates: the pendulum swings.
   const [x0] = await page.evaluate(() => window.__paiSim.bodyPos("link2"));
   await page.waitForTimeout(800);
@@ -100,6 +117,10 @@ test("opens a user's .xml through the file input", async ({ page }) => {
   // Switching back to a bundled scene still works.
   await page.locator("#scene-picker").selectOption("arm");
   await expect.poll(() => page.evaluate(() => window.__paiSim.scene())).toBe("arm");
+  // Picking "Your file" again re-opens the user's model (picker and scene agree).
+  await page.locator("#scene-picker").selectOption({ label: "Your file: fixture pendulum" });
+  await expect.poll(() => page.evaluate(() => window.__paiSim.scene())).toBe("custom");
+  expect(await page.evaluate(() => window.__paiSim.modelName())).toBe("fixture pendulum");
   expect(errors).toEqual([]);
 });
 
