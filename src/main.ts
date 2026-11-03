@@ -125,9 +125,12 @@ async function main(): Promise<void> {
     const syncUi = () => {
       const hasDrive = cur.drive !== null;
       pad.hidden = !hasDrive;
+      // Touch screens (phones, tablets) get touch wording.
+      const touch = window.matchMedia("(pointer: coarse)").matches;
+      const view = touch ? "drag to orbit · pinch to zoom" : "drag to orbit · scroll to zoom";
       hint.textContent = hasDrive
-        ? "Drive with arrow keys or WASD · drag to orbit · scroll to zoom"
-        : "Drag to orbit · scroll to zoom";
+        ? `${touch ? "Drive with the arrow pad" : "Drive with arrow keys or WASD"} · ${view}`
+        : view[0]!.toUpperCase() + view.slice(1);
       if (cur.sceneId === "custom") {
         let opt = picker.querySelector<HTMLOptionElement>(`option[value="${CUSTOM_OPTION}"]`);
         if (!opt) picker.add((opt = new Option("", CUSTOM_OPTION)));

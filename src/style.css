@@ -20,11 +20,20 @@ body {
   margin: 0;
   height: 100%;
   overflow: hidden;
+  /* iOS: no double-tap zoom on controls, no text-size bump in landscape. */
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
   display: flex;
   flex-direction: column;
+  /* Follow iOS Safari's toolbars as they show and hide (where supported). */
+  height: 100dvh;
+  /* Stop iOS rubber-band scrolling the whole page. */
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .bar {
@@ -32,6 +41,10 @@ body {
   align-items: center;
   gap: 16px;
   padding: 10px 16px;
+  /* Keep clear of the notch / Dynamic Island when the page runs edge to edge. */
+  padding-top: max(10px, env(safe-area-inset-top));
+  padding-left: max(16px, env(safe-area-inset-left));
+  padding-right: max(16px, env(safe-area-inset-right));
   border-bottom: 1px solid var(--line);
   background: #fff;
 }
@@ -209,12 +222,14 @@ button:focus-visible {
 
 .pad {
   position: absolute;
-  right: 16px;
-  bottom: 16px;
+  /* Above the iPhone home indicator and clear of the notch in landscape. */
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
   display: grid;
   grid-template-columns: repeat(3, 48px);
   grid-template-rows: repeat(2, 48px);
   gap: 6px;
+  -webkit-user-select: none;
   user-select: none;
 }
 
@@ -222,8 +237,14 @@ button:focus-visible {
   padding: 0;
   font-size: 18px;
   background: var(--panel);
+  -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
   touch-action: none;
+  /* iOS: holding a button must not select its arrow or open the callout menu
+     (either cancels the touch and stops the robot). */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .pad [data-key="arrowup"] {
@@ -247,8 +268,8 @@ button:focus-visible {
 
 .hint {
   position: absolute;
-  left: 16px;
-  bottom: 16px;
+  left: max(16px, env(safe-area-inset-left));
+  bottom: max(16px, env(safe-area-inset-bottom));
   margin: 0;
   max-width: calc(100% - 220px);
   font-size: 13px;
@@ -274,6 +295,16 @@ button:focus-visible {
   .scene-controls select {
     flex: 1;
     min-width: 0;
+  }
+  /* iOS Safari zooms the page when a control under 16px gets focus. */
+  select,
+  .file-button,
+  button {
+    font-size: 16px;
+  }
+  .pad {
+    grid-template-columns: repeat(3, 56px);
+    grid-template-rows: repeat(2, 56px);
   }
   .hud {
     display: none;
