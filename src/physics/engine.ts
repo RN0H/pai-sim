@@ -207,6 +207,25 @@ export class Sim {
     return -1;
   }
 
+  /** Names of all sensors, in id order ("" for unnamed ones). */
+  sensorNames(): string[] {
+    const out: string[] = [];
+    for (let i = 0; i < this.model.nsensor; i++) out.push(this.nameAt(this.model.name_sensoradr[i]!));
+    return out;
+  }
+
+  /** Id of the sensor called `name`, or -1. Allocates no Embind handles. */
+  sensorId(name: string): number {
+    return this.sensorNames().indexOf(name);
+  }
+
+  /** First value of sensor `name` (e.g. a rangefinder's distance). Throws for unknown names. */
+  readSensor(name: string): number {
+    const id = this.sensorId(name);
+    if (id < 0) throw new RangeError(`no sensor named "${name}"`);
+    return this.data.sensordata[this.model.sensor_adr[id]!]!;
+  }
+
   /** True if the model has a differential drive: actuators named `left` and `right`. */
   hasDifferentialDrive(): boolean {
     const names = this.actuatorNames();
