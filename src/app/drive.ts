@@ -77,6 +77,9 @@ export class DriveInput {
     el.addEventListener("pointerup", up);
     el.addEventListener("pointerleave", up);
     el.addEventListener("pointercancel", up);
+    // A long press on touch screens (iOS Safari, Android) opens a context menu,
+    // which cancels the press; holding a drive button should just keep driving.
+    el.addEventListener("contextmenu", (e) => e.preventDefault());
   }
 
   private isDriveKey(key: string): boolean {
