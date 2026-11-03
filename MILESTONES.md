@@ -16,6 +16,34 @@ Rules for agents (see `CLAUDE.md`):
 
 ---
 
+## Platform support ✅ (applies to every milestone)
+
+Goal: the same link works on the devices people actually have: iPhones
+(including old ones), Windows PCs and laptops, and Chrome everywhere. Every
+milestone's PR must keep these passing; new UI must work by keyboard, mouse
+**and** touch.
+
+- [x] **iPhone / iPad Safari, iOS 15+:** bundle built for Safari 15 (no
+  syntax it can't parse), safe-area insets for the notch and home indicator,
+  no zoom-on-focus (16px controls on phones), touch-hold drive buttons that
+  don't select text or open the callout, `100dvh` layout
+- [x] **Windows (Chrome and Edge):** sharp rendering at 125% / 150% display
+  scaling, files saved on Windows open (CRLF line endings, UTF-8 BOM, empty
+  MIME type), drive pad works by mouse and by touch on touch laptops
+- [x] **Chrome (desktop and Android):** the main test browser; perf budget
+  (≥ 80% real time in software-rendered Chrome) and phone layout
+- **Owner check on real devices** (not a checkbox, so it never blocks the
+  daily build) after each release after each release: an iPhone
+  (Safari), a Windows PC (Chrome or Edge), an Android phone (Chrome). CI has
+  no WebKit or Windows, so emulation can't catch everything.
+- Browser APIs newer than these baselines (e.g. `CompressionStream` is
+  Safari 16.4+ for M6) need a fallback or a friendly "update your browser"
+  message, never a blank page.
+- **Acceptance:** `tests/e2e/ios.spec.ts` (Safari 15 syntax check of the
+  built bundle; emulated iPhone portrait/landscape, touch driving, layout)
+  and `tests/e2e/windows.spec.ts` (fractional scaling, Windows-saved files,
+  mouse + touch) pass alongside the Chrome tests.
+
 ## M0 — Harness + skeleton ✅
 
 - [x] Vite + TypeScript (strict) app, deployed to GitHub Pages by Actions
@@ -119,3 +147,7 @@ _(Agents: add dated notes here when stopping partway through a milestone.)_
   - The Hello scene uses the Hauler template: the protected hello test spins
     at ±10 rad/s for 1 s and expects yaw in (0.3, π), which faster-spinning
     templates (Scout) overshoot.
+- 2026-11-03 (platforms): iOS Safari 15+, Windows and Chrome support added
+  as a standing requirement (see "Platform support"). WebKit can't be
+  downloaded in the agent sandbox, so iOS is checked by emulation in Chrome
+  plus a static syntax check of the bundle; real-device checks are the owner's.

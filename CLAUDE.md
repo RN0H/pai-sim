@@ -63,6 +63,10 @@ import Three.js or touch the DOM, so it stays unit-testable in Node.
 5. **Accessibility is the product.** Keep the performance test passing (≥ 80%
    real time in software-rendered Chrome). Support keyboard, touch and
    phone-sized screens. Don't add heavy dependencies without a reason in the PR.
+   Supported platforms: **iPhone Safari (iOS 15+), Windows (Chrome/Edge) and
+   Chrome** (see "Platform support" in `MILESTONES.md`). Don't use syntax or
+   APIs newer than Safari 15 without a fallback; `tests/e2e/ios.spec.ts`
+   checks the built bundle.
 6. **Free MuJoCo handles.** Embind objects aren't garbage-collected. Call
    `.delete()` on what you create (`Sim.dispose()` does this for model/data).
 7. **No secrets, no tracking, no backend.**
