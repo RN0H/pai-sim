@@ -55,10 +55,7 @@ function run(sim: Sim, left: number, right: number, seconds: number, onStep?: ()
   }
 }
 
-function sensor(sim: Sim, name: string): number {
-  const id = sim.model.sensor(name).id;
-  return sim.data.sensordata[sim.model.sensor_adr[id]!]!;
-}
+const sensor = (sim: Sim, name: string): number => sim.readSensor(name);
 
 describe("parts library", () => {
   it("has the planned parts with unique ids", () => {
@@ -119,6 +116,10 @@ describe("spec validation", () => {
     ["unknown sensor", { ...base(), sensors: ["laser"] }, /no sensor called "laser"/],
     ["duplicate sensor", { ...base(), sensors: ["line", "line"] }, /listed twice/],
     ["bad colour", { ...base(), color: "red" }, /colour/],
+    ["a control character in the name", { ...base(), name: "a\u0000b" }, /hidden or broken character/],
+    ["a line break in the name", { ...base(), name: "two\nlines" }, /hidden or broken character/],
+    ["a broken unicode character in the name", { ...base(), name: "bad \uD800 name" }, /hidden or broken character/],
+    ["a huge sensors list", { ...base(), sensors: new Array(100_000).fill("laser") }, /at most one of each/],
   ];
   for (const [label, input, message] of bad) {
     it(`rejects ${label} with a readable error`, () => {
@@ -134,6 +135,22 @@ describe("spec validation", () => {
     const res = validateSpec({ version: 1, name: "", chassis: "x", wheels: "y", motor: "z", caster: "c", sensors: [] });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.errors.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("keeps error lists short, even for huge inputs", () => {
+    const res = validateSpec({ ...base(), sensors: new Array(1_000_000).fill(0) });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.errors.length).toBeLessThan(10);
+  });
+
+  it("ignores inherited fields", () => {
+    expect(validateSpec(Object.create(base())).ok).toBe(false);
+  });
+
+  it("never throws, even for objects that throw when read", () => {
+    const nasty = new Proxy({}, { get: () => { throw new Error("boom"); }, has: () => true, getOwnPropertyDescriptor: () => { throw new Error("boom"); } });
+    expect(() => validateSpec(nasty)).not.toThrow();
+    expect(validateSpec(nasty).ok).toBe(false);
   });
 
   it("never throws, whatever it is given", () => {
@@ -164,7 +181,7 @@ describe("compile", () => {
     expect(sim.actuatorNames()).toEqual(["left", "right"]);
     expect(sim.hasDifferentialDrive()).toBe(true);
     expect(sim.model.nsensor).toBe(3);
-    for (const name of ["distance", "line_left", "line_right"]) expect(sim.model.sensor(name).id).toBeGreaterThanOrEqual(0);
+    expect(sim.sensorNames()).toEqual(["distance", "line_left", "line_right"]);
     expect(sim.modelName).toBe("Test bot");
   });
 
@@ -179,6 +196,30 @@ describe("compile", () => {
     expect(xmlAttr(name)).not.toMatch(/[<>"']/);
     const sim = make(compile({ ...base(), name }));
     expect(sim.modelName).toBe(name);
+  });
+
+  it("any name that validates loads in MuJoCo and round-trips", () => {
+    const names = [`Bob's "<bot>" & co`, "ロボ 🤖", "]]> <!-- x", "&amp; &#0; &lt;", "  padded  ", "ünïcødé ✓", "a\u00a0b"];
+    for (const name of names) {
+      const res = tryCompile({ ...base(), name });
+      expect(res.ok, name).toBe(true);
+      if (!res.ok) continue;
+      expect(make(res.xml).modelName, name).toBe(name);
+    }
+  });
+
+  it("rejects a non-finite or far-away start pose instead of building a broken model", () => {
+    for (const pose of [
+      { x: NaN, y: 0, yaw: 0 },
+      { x: 0, y: Infinity, yaw: 0 },
+      { x: 0, y: 0, yaw: -Infinity },
+      { x: 1e9, y: 0, yaw: 0 },
+      { x: "1", y: 0, yaw: 0 } as unknown as { x: number; y: number; yaw: number },
+    ]) {
+      const res = tryCompile(base(), { pose });
+      expect(res.ok, JSON.stringify(pose)).toBe(false);
+      expect(() => compile(base(), { pose })).toThrow(SpecError);
+    }
   });
 
   it("is a pure function: same spec, same XML", () => {
@@ -203,8 +244,8 @@ describe("every part combination", () => {
   for (const chassis of CHASSIS) {
     for (const wheels of WHEELS) {
       for (const motor of MOTORS) {
-        for (const sensors of [[], ["distance", "line"]] as RobotSpec["sensors"][]) {
-          const label = `${chassis.id} + ${wheels.id} + ${motor.id}${sensors.length ? " + sensors" : ""}`;
+        for (const sensors of [[], ["distance"], ["line"], ["distance", "line"]] as RobotSpec["sensors"][]) {
+          const label = [chassis.id, wheels.id, motor.id, ...sensors].join(" + ");
           it(label, () => {
             const spec: RobotSpec = { ...base(), chassis: chassis.id, wheels: wheels.id, motor: motor.id, sensors };
             const sim = make(compile(spec));
@@ -229,7 +270,7 @@ describe("every part combination", () => {
             run(sim, -top, -top, 1, watch);
             run(sim, -top, top, 1, watch);
             run(sim, 0, 0, 0.5, watch);
-            expect(minUp).toBeGreaterThan(0.8);
+            expect(minUp).toBeGreaterThan(0.95); // never tilts more than ~18°
             expect(sim.instabilityCount()).toBe(0);
             expect(sim.hasInvalidState()).toBe(false);
           });

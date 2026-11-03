@@ -173,6 +173,8 @@ export function robotFragments(spec: RobotSpec, pose: Pose = { x: 0, y: 0, yaw: 
 export function compile(spec: RobotSpec, options: CompileOptions = {}): string {
   const checked = validateSpec(spec);
   if (!checked.ok) throw new SpecError(checked.errors);
+  const poseErrors = checkPose(options.pose);
+  if (poseErrors.length) throw new SpecError(poseErrors);
   const valid = checked.spec;
   const { body, actuators, sensors } = robotFragments(valid, options.pose);
   const floor =
@@ -192,12 +194,27 @@ export function compile(spec: RobotSpec, options: CompileOptions = {}): string {
 `;
 }
 
-/** Like `compile`, but returns errors instead of throwing. For the builder UI. */
+/** Largest |x| or |y| for a start pose, in metres. */
+const MAX_POSE = 1000;
+
+function checkPose(pose: Pose | undefined): string[] {
+  if (pose === undefined) return [];
+  const ok = (v: unknown, limit: number) => typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= limit;
+  if (typeof pose === "object" && pose !== null && ok(pose.x, MAX_POSE) && ok(pose.y, MAX_POSE) && ok(pose.yaw, 1e6)) return [];
+  return [`The robot's start position must be finite numbers x and y (within ${MAX_POSE} m) and a heading in radians.`];
+}
+
+/**
+ * Like `compile`, but returns errors instead of throwing. For the builder UI.
+ * `options.world` is still trusted MJCF (it comes from our own environments).
+ */
 export function tryCompile(
   spec: unknown,
   options: CompileOptions = {},
 ): { ok: true; xml: string; spec: RobotSpec } | { ok: false; errors: string[] } {
   const checked = validateSpec(spec);
   if (!checked.ok) return checked;
+  const poseErrors = checkPose(options.pose);
+  if (poseErrors.length) return { ok: false, errors: poseErrors };
   return { ok: true, xml: compile(checked.spec, options), spec: checked.spec };
 }

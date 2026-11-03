@@ -35,6 +35,10 @@ export interface RobotSpec {
 }
 
 export const MAX_NAME_LENGTH = 40;
+/** Longest sensors list we look at (there are only a few sensor parts). */
+const MAX_SENSORS = 16;
+/** Characters XML can't hold (C0 controls, DEL) and unpaired UTF-16 surrogates. */
+const BAD_NAME_CHARS = /[\u0000-\u001f\u007f]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 
 export type ValidationResult = { ok: true; spec: RobotSpec } | { ok: false; errors: string[] };
 
@@ -68,10 +72,23 @@ function checkPart(
  * JSON from a link) and never throws; errors are plain-language sentences.
  */
 export function validateSpec(input: unknown): ValidationResult {
+  try {
+    return check(input);
+  } catch {
+    // Only exotic objects (throwing getters, proxies) get here; JSON never does.
+    return { ok: false, errors: ["This robot description couldn't be read."] };
+  }
+}
+
+const FIELDS = ["version", "name", "chassis", "wheels", "motor", "caster", "sensors", "color"] as const;
+
+function check(input: unknown): ValidationResult {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
     return { ok: false, errors: ["A robot must be described as an object with chassis, wheels, motor, caster and sensors."] };
   }
-  const s = input as Record<string, unknown>;
+  // Read each field once, own properties only (nothing inherited).
+  const s: Partial<Record<(typeof FIELDS)[number], unknown>> = {};
+  for (const k of FIELDS) if (Object.prototype.hasOwnProperty.call(input, k)) s[k] = (input as Record<string, unknown>)[k];
   const errors: string[] = [];
 
   if (s.version !== SPEC_VERSION) {
@@ -81,6 +98,8 @@ export function validateSpec(input: unknown): ValidationResult {
     errors.push("Give the robot a name.");
   } else if (s.name.length > MAX_NAME_LENGTH) {
     errors.push(`The robot's name is too long (${s.name.length} characters); keep it to ${MAX_NAME_LENGTH}.`);
+  } else if (BAD_NAME_CHARS.test(s.name)) {
+    errors.push("The robot's name has a hidden or broken character in it (like a line break); use plain text.");
   }
   checkPart(errors, s.chassis, "chassis", "chassis", CHASSIS);
   checkPart(errors, s.wheels, "wheel size", "wheel", WHEELS);
@@ -89,6 +108,8 @@ export function validateSpec(input: unknown): ValidationResult {
 
   if (!Array.isArray(s.sensors)) {
     errors.push("The sensors list is missing (use an empty list for no sensors).");
+  } else if (s.sensors.length > MAX_SENSORS) {
+    errors.push(`The sensors list has ${s.sensors.length} entries; a robot can have at most one of each sensor.`);
   } else {
     const seen = new Set<string>();
     for (const id of s.sensors as unknown[]) {

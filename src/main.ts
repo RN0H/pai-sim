@@ -2,12 +2,10 @@ import wasmUrl from "@mujoco/mujoco/mujoco.wasm?url";
 import { friendlyLoadError, loadEngine, Sim, type Mujoco } from "./physics/engine";
 import { SceneRenderer } from "./render/renderer";
 import { SimLoop } from "./app/loop";
-import { DriveInput, wheelSpeeds } from "./app/drive";
+import { DriveInput, driveTopSpeed, wheelSpeeds } from "./app/drive";
 import { DEFAULT_SCENE_ID, findScene, SCENES } from "./scenes";
 import "./style.css";
 
-/** Wheel speed for the drive pad when the model doesn't limit its actuators, in rad/s. */
-const DEFAULT_WHEEL_SPEED = 10;
 /** Larger files are almost certainly not a single-file MJCF model. */
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const CUSTOM_OPTION = "__custom";
@@ -303,9 +301,12 @@ function makeCurrent(sim: Sim, sceneId: string): Current {
   if (left < 0 || right < 0) return { sim, sceneId, drive: null };
   // Full stick = the motors' top speed (compiled robots set it per motor part).
   const range = sim.model.actuator_ctrlrange;
-  const top = Math.min(range[2 * left + 1]!, range[2 * right + 1]!);
-  const limited = sim.model.actuator_ctrllimited[left] && sim.model.actuator_ctrllimited[right];
-  const drive = { left, right, maxSpeed: limited && top > 0 ? top : DEFAULT_WHEEL_SPEED };
+  const limits = sim.model.actuator_ctrllimited;
+  const maxSpeed = driveTopSpeed(
+    { limited: !!limits[left], max: range[2 * left + 1]! },
+    { limited: !!limits[right], max: range[2 * right + 1]! },
+  );
+  const drive = { left, right, maxSpeed };
   return { sim, sceneId, drive };
 }
 
