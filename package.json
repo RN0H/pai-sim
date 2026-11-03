@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "golden": "node scripts/golden.mjs",
     "check": "npm run typecheck && npm test && npm run build && npm run test:e2e"
   },
   "license": "MIT",
