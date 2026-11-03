@@ -2,11 +2,10 @@ import wasmUrl from "@mujoco/mujoco/mujoco.wasm?url";
 import { friendlyLoadError, loadEngine, Sim, type Mujoco } from "./physics/engine";
 import { SceneRenderer } from "./render/renderer";
 import { SimLoop } from "./app/loop";
-import { DriveInput, wheelSpeeds } from "./app/drive";
+import { DriveInput, driveTopSpeed, wheelSpeeds } from "./app/drive";
 import { DEFAULT_SCENE_ID, findScene, SCENES } from "./scenes";
 import "./style.css";
 
-const MAX_WHEEL_SPEED = 10; // rad/s
 /** Larger files are almost certainly not a single-file MJCF model. */
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const CUSTOM_OPTION = "__custom";
@@ -42,7 +41,8 @@ interface Current {
   sim: Sim;
   /** Bundled scene id, or "custom". */
   sceneId: string;
-  drive: { left: number; right: number } | null;
+  /** Actuator ids and the top speed (rad/s) the drive pad commands. */
+  drive: { left: number; right: number; maxSpeed: number } | null;
 }
 
 async function main(): Promise<void> {
@@ -87,7 +87,7 @@ async function main(): Promise<void> {
       (s) => {
         if (!cur.drive) return;
         const cmd = override ?? drive.cmd;
-        const { left, right } = wheelSpeeds(cmd, MAX_WHEEL_SPEED);
+        const { left, right } = wheelSpeeds(cmd, cur.drive.maxSpeed);
         s.data.ctrl[cur.drive.left] = left;
         s.data.ctrl[cur.drive.right] = right;
       },
@@ -298,7 +298,15 @@ async function main(): Promise<void> {
 function makeCurrent(sim: Sim, sceneId: string): Current {
   const left = sim.actuatorId("left");
   const right = sim.actuatorId("right");
-  const drive = left >= 0 && right >= 0 ? { left, right } : null;
+  if (left < 0 || right < 0) return { sim, sceneId, drive: null };
+  // Full stick = the motors' top speed (compiled robots set it per motor part).
+  const range = sim.model.actuator_ctrlrange;
+  const limits = sim.model.actuator_ctrllimited;
+  const maxSpeed = driveTopSpeed(
+    { limited: !!limits[left], max: range[2 * left + 1]! },
+    { limited: !!limits[right], max: range[2 * right + 1]! },
+  );
+  const drive = { left, right, maxSpeed };
   return { sim, sceneId, drive };
 }
 

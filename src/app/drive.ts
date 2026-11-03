@@ -14,6 +14,23 @@ export function wheelSpeeds(cmd: DriveCommand, maxSpeed: number): { left: number
   return { left: left * maxSpeed, right: right * maxSpeed };
 }
 
+/** Drive pad top speed when a model doesn't limit its wheel actuators, in rad/s. */
+export const DEFAULT_DRIVE_SPEED = 10;
+/** Never command more than this from the pad, whatever a model allows (rad/s). */
+export const MAX_DRIVE_SPEED = 30;
+
+/**
+ * Full-stick wheel speed for a model's left/right actuators: the smaller of
+ * their upper control limits (so compiled robots drive at their motor's top
+ * speed), capped at MAX_DRIVE_SPEED, or the default when they aren't limited.
+ */
+export function driveTopSpeed(left: { limited: boolean; max: number }, right: { limited: boolean; max: number }): number {
+  if (!left.limited || !right.limited) return DEFAULT_DRIVE_SPEED;
+  const top = Math.min(left.max, right.max);
+  if (!Number.isFinite(top) || top <= 0) return DEFAULT_DRIVE_SPEED;
+  return Math.min(top, MAX_DRIVE_SPEED);
+}
+
 export class DriveInput {
   readonly cmd: DriveCommand = { forward: 0, turn: 0 };
   private readonly held = new Set<string>();
