@@ -119,6 +119,8 @@ describe("spec validation", () => {
     ["a control character in the name", { ...base(), name: "a\u0000b" }, /hidden or broken character/],
     ["a line break in the name", { ...base(), name: "two\nlines" }, /hidden or broken character/],
     ["a broken unicode character in the name", { ...base(), name: "bad \uD800 name" }, /hidden or broken character/],
+    ["a stray low surrogate in the name", { ...base(), name: "bad \uDC00 name" }, /hidden or broken character/],
+    ["a stray low surrogate starting the name", { ...base(), name: "\uDC00name" }, /hidden or broken character/],
     ["a huge sensors list", { ...base(), sensors: new Array(100_000).fill("laser") }, /at most one of each/],
   ];
   for (const [label, input, message] of bad) {

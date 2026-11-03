@@ -37,8 +37,11 @@ export interface RobotSpec {
 export const MAX_NAME_LENGTH = 40;
 /** Longest sensors list we look at (there are only a few sensor parts). */
 const MAX_SENSORS = 16;
-/** Characters XML can't hold (C0 controls, DEL) and unpaired UTF-16 surrogates. */
-const BAD_NAME_CHARS = /[\u0000-\u001f\u007f]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+/**
+ * Characters XML can't hold (C0 controls, DEL) and unpaired UTF-16 surrogates.
+ * No regex lookbehind: Safari before 16.4 can't parse it.
+ */
+const BAD_NAME_CHARS = /[\u0000-\u001f\u007f]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 
 export type ValidationResult = { ok: true; spec: RobotSpec } | { ok: false; errors: string[] };
 
