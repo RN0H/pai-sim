@@ -138,6 +138,7 @@ async function main(): Promise<void> {
     $("#load-error-close").addEventListener("click", clearError);
 
     const syncUi = () => {
+      builder.setShowing(cur.sceneId === BUILD_SCENE);
       const hasDrive = cur.drive !== null;
       pad.hidden = !hasDrive;
       // Touch screens (phones, tablets) get touch wording.
@@ -169,6 +170,13 @@ async function main(): Promise<void> {
     // Bumped by every load request so a slow file read can't overwrite a
     // scene the user picked afterwards.
     let loadSeq = 0;
+
+    const setSceneParam = (id: string | null) => {
+      const url = new URL(location.href);
+      if (id && id !== DEFAULT_SCENE_ID) url.searchParams.set("scene", id);
+      else url.searchParams.delete("scene");
+      history.replaceState(null, "", url);
+    };
 
     const swapIn = (sim: Sim, sceneId: string, keepCamera: boolean) => {
       clearError();
@@ -226,31 +234,29 @@ async function main(): Promise<void> {
       builderPanel.hidden = !open;
       builderToggle.setAttribute("aria-expanded", String(open));
       document.body.classList.toggle("building", open);
-      if (open) builderPanel.querySelector<HTMLElement>("form button")?.focus();
+      if (open) builderPanel.querySelector<HTMLElement>("[data-template]")?.focus();
       else builderToggle.focus();
     };
     builderToggle.addEventListener("click", () => setBuilderOpen(!builderOpen));
     $("#builder-close").addEventListener("click", () => setBuilderOpen(false));
-    builderPanel.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") {
+    window.addEventListener("keydown", (e) => {
+      // Escape closes the builder, unless it's closing a control's own popup.
+      if (e.key === "Escape" && builderOpen && !e.defaultPrevented && !(e.target instanceof HTMLSelectElement)) {
         e.preventDefault();
         setBuilderOpen(false);
       }
     });
     syncUi();
 
-    const setSceneParam = (id: string | null) => {
-      const url = new URL(location.href);
-      if (id && id !== DEFAULT_SCENE_ID) url.searchParams.set("scene", id);
-      else url.searchParams.delete("scene");
-      history.replaceState(null, "", url);
-    };
-
     picker.addEventListener("change", () => {
       loadSeq++;
       if (picker.value === BUILD_OPTION) {
         // Back to the robot from the builder.
-        if (loadBuild(builder.spec)) syncUi();
+        const failure = loadBuild(builder.spec);
+        if (failure) {
+          showError(failure);
+          syncUi();
+        }
         return;
       }
       if (picker.value === CUSTOM_OPTION) {

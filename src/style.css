@@ -383,6 +383,32 @@ button:focus-visible {
   accent-color: var(--accent);
 }
 
+.b-notice {
+  margin: 12px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #f1f4f8;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.b-notice[hidden] {
+  display: none;
+}
+
+.b-show {
+  margin-left: 4px;
+  padding: 3px 8px;
+  font-size: 13px;
+}
+
+/* Touch screens: iOS zooms into inputs under 16px when they get focus. */
+@media (pointer: coarse) {
+  .b-name input {
+    font-size: 16px;
+  }
+}
+
 #builder-toggle[aria-expanded="true"] {
   border-color: var(--accent);
   background: #fff6f1;
@@ -511,6 +537,7 @@ button:focus-visible {
   }
   .builder {
     width: auto;
+    max-height: 48vh; /* iOS Safari < 15.4 has no dvh */
     max-height: 48dvh;
     border-left: 0;
     border-top: 1px solid var(--line);

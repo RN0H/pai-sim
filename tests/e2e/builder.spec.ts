@@ -130,20 +130,35 @@ test("the builder works from the keyboard alone", async ({ page }) => {
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await spec(page)).name).toBe("Scout");
 
-  // Arrow keys move through a radio group (and don't drive the robot).
+  // Holding a drive key while a panel button has focus doesn't drive.
+  await page.waitForTimeout(300);
   const x0 = await roverX(page);
+  await page.keyboard.down("ArrowUp");
+  await page.waitForTimeout(1000);
+  await page.keyboard.up("ArrowUp");
+  await page.keyboard.down("w");
+  await page.waitForTimeout(500);
+  await page.keyboard.up("w");
+  expect(Math.abs((await roverX(page)) - x0)).toBeLessThan(0.05);
+
+  // Arrow keys move through a radio group.
   await page.getByRole("radio", { name: /Small chassis/ }).focus();
   await page.keyboard.press("ArrowDown");
   await expect.poll(async () => (await spec(page)).chassis).toBe("chassis_medium");
   await page.keyboard.press("ArrowDown");
   await expect.poll(async () => (await spec(page)).chassis).toBe("chassis_large");
-  await page.waitForTimeout(300);
-  expect(Math.abs((await roverX(page)) - x0)).toBeLessThan(0.05);
 
   // Space toggles a sensor checkbox.
   await page.getByRole("checkbox", { name: /Distance sensor/ }).focus();
   await page.keyboard.press("Space");
   await expect.poll(async () => (await spec(page)).sensors).toEqual(["distance"]);
+  // ...and holding a drive key on it doesn't drive either.
+  await page.waitForTimeout(300);
+  const x1 = await roverX(page);
+  await page.keyboard.down("ArrowUp");
+  await page.waitForTimeout(1000);
+  await page.keyboard.up("ArrowUp");
+  expect(Math.abs((await roverX(page)) - x1)).toBeLessThan(0.05);
 
   // Escape closes the panel and returns focus to the toggle.
   await page.keyboard.press("Escape");
@@ -163,9 +178,15 @@ test("phone: builds and drives a rover from the bottom sheet with touch", async 
   await panel.getByRole("radio", { name: /Large wheels/ }).tap();
   await panel.getByRole("radio", { name: /Fast motors/ }).tap();
   await panel.getByRole("checkbox", { name: /Distance sensor/ }).tap();
+  const name = panel.getByRole("textbox", { name: "Name" });
+  await name.tap();
+  await name.fill("Pocket");
+  await name.press("Enter");
   await expect
     .poll(() => spec(page))
-    .toMatchObject({ chassis: "chassis_medium", wheels: "wheel_large", motor: "motor_fast", sensors: ["distance"] });
+    .toMatchObject({ name: "Pocket", chassis: "chassis_medium", wheels: "wheel_large", motor: "motor_fast", sensors: ["distance"] });
+  // The Name field is 16px on touch screens, so iOS doesn't zoom into it.
+  expect(await name.evaluate((e) => getComputedStyle(e).fontSize)).toBe("16px");
   expect(await page.evaluate(() => window.__paiSim.scene())).toBe("build");
 
   // The sheet sits below the 3D view: the drive pad stays visible and tappable.
@@ -173,9 +194,17 @@ test("phone: builds and drives a rover from the bottom sheet with touch", async 
   const sheet = await panel.boundingBox();
   expect(pad && sheet).toBeTruthy();
   expect(pad!.y + pad!.height).toBeLessThanOrEqual(sheet!.y + 1);
+  // Nothing sits on top of the Forward button.
+  const fwdBox = (await page.getByRole("button", { name: "Forward" }).boundingBox())!;
+  const hit = await page.evaluate(
+    ([x, y]) => document.elementFromPoint(x!, y!)?.getAttribute("aria-label") ?? null,
+    [fwdBox.x + fwdBox.width / 2, fwdBox.y + fwdBox.height / 2],
+  );
+  expect(hit).toBe("Forward");
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
   expect(overflow, "no horizontal scroll").toBe(false);
 
+  await page.locator("#builder-form").evaluate((f) => f.scrollTo(0, 0));
   await page.waitForTimeout(400);
   await page.screenshot({ path: `${SHOTS}/builder-phone.png` });
   const x0 = await roverX(page);
@@ -186,4 +215,91 @@ test("phone: builds and drives a rover from the bottom sheet with touch", async 
   expect((await roverX(page)) - x0).toBeGreaterThan(0.3);
   expect(errors).toEqual([]);
   await page.close();
+});
+
+test("phone landscape: the side panel fits and its Name field doesn't trigger zoom", async ({ browser }) => {
+  const page = await browser.newPage({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true });
+  await openSim(page);
+  await page.getByRole("button", { name: "Build", exact: true }).tap();
+  const name = page.getByRole("textbox", { name: "Name" });
+  await expect(name).toBeVisible();
+  expect(await name.evaluate((e) => getComputedStyle(e).fontSize)).toBe("16px");
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+  expect(overflow, "no horizontal scroll").toBe(false);
+  await page.waitForTimeout(1500); // let the resized view render
+  await page.screenshot({ path: `${SHOTS}/builder-phone-landscape.png` });
+  await page.close();
+});
+
+test("the panel follows the scene: other scenes, the picker, colour and Close", async ({ page }) => {
+  const errors = await openSim(page);
+  await page.getByRole("button", { name: "Build", exact: true }).click();
+  const panel = page.getByRole("complementary", { name: "Build your robot" });
+  // The default Hello scene isn't the builder's robot yet.
+  await expect(panel.getByText("Another scene is running.")).toBeVisible();
+
+  await panel.getByRole("button", { name: /^Scout/ }).click();
+  await expect.poll(() => page.evaluate(() => window.__paiSim.scene())).toBe("build");
+  await expect(panel.getByText("Another scene is running.")).toBeHidden();
+
+  // Repaint.
+  await panel.getByLabel("Colour").fill("#12ab34");
+  await expect.poll(async () => (await spec(page)).color).toBe("#12ab34");
+
+  // Switch to another scene: the panel says so, and clicking the part that's
+  // already checked brings the robot back.
+  await page.locator("#scene-picker").selectOption("hello");
+  await expect.poll(() => page.evaluate(() => window.__paiSim.scene())).toBe("hello");
+  await expect(panel.getByText("Another scene is running.")).toBeVisible();
+  await panel.getByRole("radio", { name: /Small chassis/ }).click();
+  await expect.poll(() => page.evaluate(() => window.__paiSim.scene())).toBe("build");
+  expect(await page.evaluate(() => window.__paiSim.modelName())).toBe("Scout");
+
+  // "Show my robot" does the same, and so does the picker's "My robot" entry.
+  await page.locator("#scene-picker").selectOption("arm");
+  await panel.getByRole("button", { name: "Show my robot" }).click();
+  await expect.poll(() => page.evaluate(() => window.__paiSim.scene())).toBe("build");
+  await page.locator("#scene-picker").selectOption("cartpole");
+  await page.locator("#scene-picker").selectOption({ label: "My robot: Scout" });
+  await expect.poll(() => page.evaluate(() => window.__paiSim.scene())).toBe("build");
+  expect(await spec(page)).toMatchObject({ name: "Scout", color: "#12ab34" });
+
+  // Close hides the panel; the robot keeps running.
+  await panel.getByRole("button", { name: "Close the builder" }).click();
+  await expect(panel).toBeHidden();
+  await expect(page.getByRole("button", { name: "Build", exact: true })).toBeFocused();
+  expect(await page.evaluate(() => window.__paiSim.scene())).toBe("build");
+  expect(errors).toEqual([]);
+});
+
+test("rebuilding keeps a camera the user has moved", async ({ page }) => {
+  test.setTimeout(90_000);
+  await openSim(page);
+  await page.getByRole("button", { name: "Build", exact: true }).click();
+  await page.getByRole("button", { name: /^Scout/ }).click();
+  await expect.poll(() => page.evaluate(() => window.__paiSim.scene())).toBe("build");
+  await page.waitForTimeout(500);
+  const before = await page.evaluate(() => window.__paiSim.cameraPos());
+  // Orbit by dragging the canvas, then let damping settle.
+  const box = (await page.locator("#viewport canvas").boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 300, box.y + box.height / 2 - 80, { steps: 8 });
+  await page.mouse.up();
+  const dist = (a: number[], b: number[]) => Math.hypot(...a.map((v, i) => v - b[i]!));
+  // Orbit damping eases out over many frames; at a few fps that takes seconds.
+  let orbited = await page.evaluate(() => window.__paiSim.cameraPos());
+  for (let i = 0; i < 60; i++) {
+    await page.waitForTimeout(500);
+    const now = await page.evaluate(() => window.__paiSim.cameraPos());
+    const moved = dist(now, orbited);
+    orbited = now;
+    if (moved < 0.005) break;
+  }
+  expect(dist(orbited, before)).toBeGreaterThan(0.5);
+
+  await page.getByRole("radio", { name: /Large chassis/ }).click();
+  await expect.poll(async () => (await spec(page)).chassis).toBe("chassis_large");
+  const after = await page.evaluate(() => window.__paiSim.cameraPos());
+  expect(dist(after, orbited)).toBeLessThan(0.02);
 });

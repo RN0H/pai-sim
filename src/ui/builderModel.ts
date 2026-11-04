@@ -5,7 +5,7 @@
  */
 import { tryCompile } from "../robot/compile";
 import { CHASSIS, MOTORS, SENSORS, WHEELS, type SensorId } from "../robot/parts";
-import { validateSpec, type RobotSpec } from "../robot/spec";
+import { cloneSpec, validateSpec, type RobotSpec } from "../robot/spec";
 
 /** Spec fields the builder lets you pick a part for. */
 export type PartField = "chassis" | "wheels" | "motor";
@@ -54,7 +54,7 @@ export function sensorOptions(): SensorOption[] {
 
 /** A copy of `spec` with one part swapped. */
 export function withPart(spec: RobotSpec, field: PartField, id: string): RobotSpec {
-  return { ...structuredClone(spec), [field]: id } as RobotSpec;
+  return { ...cloneSpec(spec), [field]: id } as RobotSpec;
 }
 
 /** A copy of `spec` with a sensor added or removed. Sensors stay in library order. */
@@ -62,17 +62,17 @@ export function withSensor(spec: RobotSpec, id: SensorId, on: boolean): RobotSpe
   const want = new Set(spec.sensors);
   if (on) want.add(id);
   else want.delete(id);
-  const next = structuredClone(spec);
+  const next = cloneSpec(spec);
   next.sensors = SENSORS.map((s) => s.id).filter((s) => want.has(s));
   return next;
 }
 
 export function withName(spec: RobotSpec, name: string): RobotSpec {
-  return { ...structuredClone(spec), name };
+  return { ...cloneSpec(spec), name };
 }
 
 export function withColor(spec: RobotSpec, color: string): RobotSpec {
-  return { ...structuredClone(spec), color };
+  return { ...cloneSpec(spec), color };
 }
 
 /** Errors for the builder: those caused by the name, and everything else. */
@@ -93,9 +93,10 @@ export function builderErrors(spec: RobotSpec): BuilderErrors {
 }
 
 /**
- * Compile the builder's spec into the "My robot" scene: the robot on an
- * empty floor. Never throws; invalid specs return plain-language errors.
+ * Compile the builder's spec into the "My robot" scene: the robot alone on
+ * a floor, at the origin facing +x (the camera can stay where it was). Never
+ * throws; invalid specs return plain-language errors.
  */
 export function buildScene(spec: RobotSpec): ReturnType<typeof tryCompile> {
-  return tryCompile(spec);
+  return tryCompile(spec, { pose: { x: 0, y: 0, yaw: 0 }, floor: true });
 }

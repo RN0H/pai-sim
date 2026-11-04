@@ -34,6 +34,14 @@ export interface RobotSpec {
   color?: string;
 }
 
+/**
+ * A deep copy of a spec. Specs are plain JSON, so a JSON round trip is
+ * enough, and unlike `structuredClone` it works on iOS Safari < 15.4.
+ */
+export function cloneSpec(spec: RobotSpec): RobotSpec {
+  return JSON.parse(JSON.stringify(spec)) as RobotSpec;
+}
+
 export const MAX_NAME_LENGTH = 40;
 /** Longest sensors list we look at (there are only a few sensor parts). */
 const MAX_SENSORS = 16;

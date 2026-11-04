@@ -1,5 +1,5 @@
 /** Starting robots: a beginner picks one and changes parts from there. */
-import { SPEC_VERSION, type RobotSpec } from "./spec";
+import { cloneSpec, SPEC_VERSION, type RobotSpec } from "./spec";
 
 export interface Template {
   id: string;
@@ -56,5 +56,5 @@ export const TEMPLATES: readonly Template[] = [
 /** A fresh copy of a template's spec (safe to edit). Unknown ids give the first template. */
 export function templateSpec(id: string): RobotSpec {
   const t = TEMPLATES.find((x) => x.id === id) ?? TEMPLATES[0]!;
-  return structuredClone(t.spec);
+  return cloneSpec(t.spec);
 }
