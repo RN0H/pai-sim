@@ -20,26 +20,36 @@
         <label for="file-input" class="file-button" title="Open a MuJoCo .xml model from your device (or drop it on the page)">Open .xml</label>
       </div>
       <div class="actions">
+        <button id="builder-toggle" type="button" aria-expanded="false" aria-controls="builder">Build</button>
         <button id="pause" type="button">Pause</button>
         <button id="reset" type="button">Reset</button>
       </div>
     </header>
-    <main id="viewport" class="viewport">
-      <p id="status" class="status">Loading…</p>
-      <div id="load-error" class="load-error" role="alert" hidden>
-        <p><strong>Couldn't open that model.</strong> <span id="load-error-text"></span></p>
-        <p class="load-error-sub">The previous scene is still running.</p>
-        <button id="load-error-close" type="button" aria-label="Dismiss error">Dismiss</button>
-      </div>
-      <div id="drop-overlay" class="drop-overlay" hidden>Drop a MuJoCo .xml file to open it</div>
-      <div id="drive-pad" class="pad" role="group" aria-label="Drive controls">
-        <button type="button" data-key="arrowup" aria-label="Forward">▲</button>
-        <button type="button" data-key="arrowleft" aria-label="Turn left">◀</button>
-        <button type="button" data-key="arrowdown" aria-label="Reverse">▼</button>
-        <button type="button" data-key="arrowright" aria-label="Turn right">▶</button>
-      </div>
-      <p id="hint" class="hint">Drive the rover with arrow keys or WASD · drag to orbit · scroll to zoom</p>
-    </main>
+    <div class="workspace">
+      <main id="viewport" class="viewport">
+        <p id="status" class="status">Loading…</p>
+        <div id="load-error" class="load-error" role="alert" hidden>
+          <p><strong>Couldn't open that model.</strong> <span id="load-error-text"></span></p>
+          <p class="load-error-sub">The previous scene is still running.</p>
+          <button id="load-error-close" type="button" aria-label="Dismiss error">Dismiss</button>
+        </div>
+        <div id="drop-overlay" class="drop-overlay" hidden>Drop a MuJoCo .xml file to open it</div>
+        <div id="drive-pad" class="pad" role="group" aria-label="Drive controls">
+          <button type="button" data-key="arrowup" aria-label="Forward">▲</button>
+          <button type="button" data-key="arrowleft" aria-label="Turn left">◀</button>
+          <button type="button" data-key="arrowdown" aria-label="Reverse">▼</button>
+          <button type="button" data-key="arrowright" aria-label="Turn right">▶</button>
+        </div>
+        <p id="hint" class="hint">Drive the rover with arrow keys or WASD · drag to orbit · scroll to zoom</p>
+      </main>
+      <aside id="builder" class="builder" aria-labelledby="builder-title" hidden>
+        <div class="builder-head">
+          <h2 id="builder-title">Build your robot</h2>
+          <button id="builder-close" type="button" aria-label="Close the builder">Close</button>
+        </div>
+        <form id="builder-form" class="builder-form" aria-labelledby="builder-title"></form>
+      </aside>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

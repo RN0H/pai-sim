@@ -4,11 +4,20 @@ import { SceneRenderer } from "./render/renderer";
 import { SimLoop } from "./app/loop";
 import { DriveInput, driveTopSpeed, wheelSpeeds } from "./app/drive";
 import { DEFAULT_SCENE_ID, findScene, SCENES } from "./scenes";
+import { templateSpec } from "./robot/templates";
+import type { RobotSpec } from "./robot/spec";
+import { BuilderPanel } from "./ui/builder";
+import { buildScene } from "./ui/builderModel";
 import "./style.css";
 
 /** Larger files are almost certainly not a single-file MJCF model. */
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const CUSTOM_OPTION = "__custom";
+const BUILD_OPTION = "__build";
+/** Scene id for the robot made in the builder. */
+const BUILD_SCENE = "build";
+/** Scenes whose robot sits at the origin, so the builder keeps their camera. */
+const ROBOT_SCENES = new Set(["hello", BUILD_SCENE]);
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 
@@ -29,6 +38,10 @@ export interface TestHooks {
   loadError(): string | null;
   /** Number of geoms currently drawn. */
   drawnGeoms(): number;
+  /** The robot spec the builder shows (read-only: tests build through the UI). */
+  builderSpec(): RobotSpec;
+  /** Camera position in render coordinates. */
+  cameraPos(): [number, number, number];
 }
 
 declare global {
@@ -39,7 +52,7 @@ declare global {
 
 interface Current {
   sim: Sim;
-  /** Bundled scene id, or "custom". */
+  /** Bundled scene id, "custom" (a user's file) or "build" (the builder's robot). */
   sceneId: string;
   /** Actuator ids and the top speed (rad/s) the drive pad commands. */
   drive: { left: number; right: number; maxSpeed: number } | null;
@@ -58,6 +71,8 @@ async function main(): Promise<void> {
     modelName: () => "",
     loadError: () => null,
     drawnGeoms: () => 0,
+    builderSpec: () => templateSpec("hauler"),
+    cameraPos: () => [0, 0, 0],
   });
 
   const status = $("#status");
@@ -131,7 +146,12 @@ async function main(): Promise<void> {
       hint.textContent = hasDrive
         ? `${touch ? "Drive with the arrow pad" : "Drive with arrow keys or WASD"} · ${view}`
         : view[0]!.toUpperCase() + view.slice(1);
-      if (cur.sceneId === "custom") {
+      if (cur.sceneId === BUILD_SCENE) {
+        let opt = picker.querySelector<HTMLOptionElement>(`option[value="${BUILD_OPTION}"]`);
+        if (!opt) picker.add((opt = new Option("", BUILD_OPTION)));
+        opt.textContent = `My robot: ${cur.sim.modelName || "robot"}`;
+        picker.value = BUILD_OPTION;
+      } else if (cur.sceneId === "custom") {
         let opt = picker.querySelector<HTMLOptionElement>(`option[value="${CUSTOM_OPTION}"]`);
         if (!opt) picker.add((opt = new Option("", CUSTOM_OPTION)));
         opt.textContent = `Your file: ${cur.sim.modelName || "model"}`;
@@ -140,7 +160,6 @@ async function main(): Promise<void> {
         picker.value = cur.sceneId;
       }
     };
-    syncUi();
 
     /**
      * Swap in a new model. Returns false (and keeps the old scene running) if
@@ -151,6 +170,18 @@ async function main(): Promise<void> {
     // scene the user picked afterwards.
     let loadSeq = 0;
 
+    const swapIn = (sim: Sim, sceneId: string, keepCamera: boolean) => {
+      clearError();
+      const old = cur.sim;
+      cur = makeCurrent(sim, sceneId);
+      override = null;
+      loop.setSim(sim);
+      view.load(sim);
+      if (!keepCamera) view.frame(sim);
+      old.dispose();
+      syncUi();
+    };
+
     const loadXml = (xml: string, sceneId: string): boolean => {
       let sim: Sim;
       try {
@@ -160,17 +191,53 @@ async function main(): Promise<void> {
         syncUi(); // put the picker back on the scene that is still running
         return false;
       }
-      clearError();
-      const old = cur.sim;
-      cur = makeCurrent(sim, sceneId);
-      override = null;
-      loop.setSim(sim);
-      view.load(sim);
-      view.frame(sim);
-      old.dispose();
-      syncUi();
+      swapIn(sim, sceneId, false);
       return true;
     };
+
+    // ---- Builder -----------------------------------------------------------
+    /** Load a builder spec as the "My robot" scene. Returns an error message, or null. */
+    const loadBuild = (spec: RobotSpec): string | null => {
+      const built = buildScene(spec);
+      if (!built.ok) return built.errors.join(" ");
+      let sim: Sim;
+      try {
+        sim = new Sim(mj, built.xml);
+      } catch (err) {
+        return friendlyLoadError(err);
+      }
+      loadSeq++;
+      // Rebuilding the robot keeps the user's view; only re-frame when coming
+      // from a scene laid out differently (the arm, a user's file).
+      swapIn(sim, BUILD_SCENE, ROBOT_SCENES.has(cur.sceneId));
+      setSceneParam(null);
+      return null;
+    };
+
+    const builderPanel = $("#builder");
+    const builderToggle = $<HTMLButtonElement>("#builder-toggle");
+    const builder = new BuilderPanel($<HTMLFormElement>("#builder-form"), {
+      initial: templateSpec("hauler"), // the robot in the default Hello scene
+      onChange: loadBuild,
+    });
+    let builderOpen = false;
+    const setBuilderOpen = (open: boolean) => {
+      builderOpen = open;
+      builderPanel.hidden = !open;
+      builderToggle.setAttribute("aria-expanded", String(open));
+      document.body.classList.toggle("building", open);
+      if (open) builderPanel.querySelector<HTMLElement>("form button")?.focus();
+      else builderToggle.focus();
+    };
+    builderToggle.addEventListener("click", () => setBuilderOpen(!builderOpen));
+    $("#builder-close").addEventListener("click", () => setBuilderOpen(false));
+    builderPanel.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setBuilderOpen(false);
+      }
+    });
+    syncUi();
 
     const setSceneParam = (id: string | null) => {
       const url = new URL(location.href);
@@ -181,6 +248,11 @@ async function main(): Promise<void> {
 
     picker.addEventListener("change", () => {
       loadSeq++;
+      if (picker.value === BUILD_OPTION) {
+        // Back to the robot from the builder.
+        if (loadBuild(builder.spec)) syncUi();
+        return;
+      }
       if (picker.value === CUSTOM_OPTION) {
         // Re-open the last file the user loaded.
         if (customXml && loadXml(customXml, "custom")) setSceneParam(null);
@@ -286,6 +358,8 @@ async function main(): Promise<void> {
       modelName: () => cur.sim.modelName,
       loadError: () => lastError,
       drawnGeoms: () => view.drawnCount,
+      builderSpec: () => builder.spec,
+      cameraPos: () => view.camera.position.toArray(),
     } satisfies Partial<TestHooks>);
     hooks.ready = true;
     status.hidden = true;
