@@ -37,13 +37,16 @@ export class DriveInput {
 
   constructor(target: Window = window) {
     target.addEventListener("keydown", (e) => {
-      // Leave arrow keys to form controls (e.g. the scene picker) and editors.
+      // Leave arrow keys to form controls (e.g. the scene picker), editors and
+      // anything inside a `data-no-drive` element.
       const t = e.target;
       if (
         t instanceof HTMLInputElement ||
         t instanceof HTMLTextAreaElement ||
         t instanceof HTMLSelectElement ||
-        (t instanceof HTMLElement && t.isContentEditable)
+        (t instanceof HTMLElement && t.isContentEditable) ||
+        // Panels that move focus around with arrow keys (the builder).
+        (t instanceof Element && t.closest("[data-no-drive]"))
       )
         return;
       if (this.isDriveKey(e.key)) {
