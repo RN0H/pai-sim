@@ -2,6 +2,7 @@
 import { HELLO_XML } from "./hello";
 import { ARM_XML } from "./arm";
 import { CARTPOLE_XML } from "./cartpole";
+import { SENSORS_XML } from "./sensors";
 
 export interface SceneInfo {
   /** Stable id used in `?scene=<id>` URLs. */
@@ -15,6 +16,7 @@ export const SCENES: readonly SceneInfo[] = [
   { id: "hello", name: "Hello rover", xml: HELLO_XML },
   { id: "arm", name: "2-link arm", xml: ARM_XML },
   { id: "cartpole", name: "Cart-pole", xml: CARTPOLE_XML },
+  { id: "sensors", name: "Sensor playground", xml: SENSORS_XML },
 ];
 
 export const DEFAULT_SCENE_ID = SCENES[0]!.id;

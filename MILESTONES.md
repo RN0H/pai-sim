@@ -60,9 +60,9 @@ Goal: a beginner builds a rover without touching code or files.
 
 Goal: make the robot do things by itself.
 
-- [ ] User JavaScript runs in a Web Worker with a tiny API: `robot.setWheels(left, right)`, `robot.read(sensorName)`, `robot.time`; called each control tick (50 Hz)
-- [ ] Code editor panel with 3 example programs (drive in a square, avoid obstacles, follow a line)
-- [ ] Safety: an infinite loop or exception never freezes the page; worker is restarted and the error shown with a line number
+- [x] User JavaScript runs in a Web Worker with a tiny API: `robot.setWheels(left, right)`, `robot.read(sensorName)`, `robot.time`; called each control tick (50 Hz)
+- [x] Code editor panel with 3 example programs (drive in a square, avoid obstacles, follow a line)
+- [x] Safety: an infinite loop or exception never freezes the page; worker is restarted and the error shown with a line number
 - [ ] Blocks editor (Blockly) that generates the same JS; switch between blocks and code view
 - [ ] Python is a stretch goal (Pyodide, lazy-loaded) — only if it keeps the perf budget
 - **Acceptance:** unit tests for the controller API against the compiled template; e2e runs each example program and asserts its effect (square returns near start; avoider doesn't hit a wall in 10 s); e2e with `while(true){}` shows an error and the page stays responsive.
@@ -128,3 +128,30 @@ _(Agents: add dated notes here when stopping partway through a milestone.)_
     builder), because they move between radio buttons there.
   - Use `cloneSpec()` (src/robot/spec.ts), not `structuredClone`: iOS Safari
     before 15.4 lacks it.
+- 2026-11-05 (M4, part 1): done: Web Worker sandbox, code panel with 3
+  examples, safety (watchdog + line numbers). Left: the Blockly editor
+  (and the optional Python stretch goal). Notes:
+  - Code lives in `src/control/`: `program.ts` (runs the program; the code
+    inside the worker), `controller.ts` (lockstep with the sim), `host.ts`
+    (the Worker + watchdog), `examples.ts`. The panel is `src/ui/codePanel.ts`.
+  - Program shape: top-level code runs once on the first tick; a top-level
+    `function loop() {}` runs every tick (50 Hz). `robot.setWheels(l, r)`
+    takes -1..1 (fraction of the motor's top speed, i.e. the actuator's
+    upper ctrlrange capped at 30 rad/s); `robot.time` is seconds since the
+    program started (1/50 s per control tick); `console.log` shows in the panel. Blockly
+    should generate this same shape.
+  - Lockstep: physics holds at every control tick until the worker answers
+    (`SimLoop` `beforeStep` returning false + `pump()`), so runs are
+    deterministic regardless of device speed. M6 can rely on that.
+  - Run resets the scene; Reset restarts a running program; changing the
+    scene stops it. A tick that takes over 1 s (5 s for the first, which
+    also loads the worker and runs the top-level code) terminates the
+    worker and stops the program with an error (no line number for that);
+    the next Run starts a fresh worker. Replies are checked (`parseReply`)
+    and the worker removes `postMessage` and network APIs before user code
+    runs, since M6 links will run other people's code.
+  - Bundled "Sensor playground" scene (`?scene=sensors`): Sensor bot in a
+    3 m walled pen with a circular line (radius 0.8 m). M5 may fold it into
+    the environments.
+  - The worker is a classic (not module) worker so Firefox < 114 works; it
+    bundles acorn (~120 KB, loaded only on first Run) to find syntax error lines.

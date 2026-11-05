@@ -21,6 +21,7 @@
       </div>
       <div class="actions">
         <button id="builder-toggle" type="button" aria-expanded="false" aria-controls="builder">Build</button>
+        <button id="code-toggle" type="button" aria-expanded="false" aria-controls="code">Code</button>
         <button id="pause" type="button">Pause</button>
         <button id="reset" type="button">Reset</button>
       </div>
@@ -48,6 +49,13 @@
           <button id="builder-close" type="button" aria-label="Close the builder">Close</button>
         </div>
         <form id="builder-form" class="builder-form"></form>
+      </aside>
+      <aside id="code" class="builder code-panel" aria-labelledby="code-title" data-no-drive hidden>
+        <div class="builder-head">
+          <h2 id="code-title">Program your robot</h2>
+          <button id="code-close" type="button" aria-label="Close the code panel">Close</button>
+        </div>
+        <div id="code-body" class="builder-form code-body"></div>
       </aside>
     </div>
     <script type="module" src="/src/main.ts"></script>

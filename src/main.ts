@@ -8,6 +8,10 @@ import { templateSpec } from "./robot/templates";
 import type { RobotSpec } from "./robot/spec";
 import { BuilderPanel } from "./ui/builder";
 import { buildScene } from "./ui/builderModel";
+import { CodePanel } from "./ui/codePanel";
+import type { Controller } from "./control/controller";
+import { formatProgramError } from "./control/api";
+import { startInWorker } from "./control/host";
 import "./style.css";
 
 /** Larger files are almost certainly not a single-file MJCF model. */
@@ -42,6 +46,8 @@ export interface TestHooks {
   builderSpec(): RobotSpec;
   /** Camera position in render coordinates. */
   cameraPos(): [number, number, number];
+  /** The controller program: "none" (never run or stopped), "running" or "failed", its last error and wheel command. */
+  program(): { state: "none" | "running" | "failed"; error: string | null; wheels: { left: number; right: number }; time: number };
 }
 
 declare global {
@@ -73,6 +79,7 @@ async function main(): Promise<void> {
     drawnGeoms: () => 0,
     builderSpec: () => templateSpec("hauler"),
     cameraPos: () => [0, 0, 0],
+    program: () => ({ state: "none", error: null, wheels: { left: 0, right: 0 }, time: 0 }),
   });
 
   const status = $("#status");
@@ -96,10 +103,14 @@ async function main(): Promise<void> {
       drive.bindButton(btn, btn.dataset.key!);
     }
     let override: { forward: number; turn: number } | null = null;
+    /** The running controller program, if any. It drives the wheels instead of the pad. */
+    let program: Controller | null = null;
+    let programFailure: string | null = null;
 
     const loop = new SimLoop(
       cur.sim,
       (s) => {
+        if (program) return program.beforeStep();
         if (!cur.drive) return;
         const cmd = override ?? drive.cmd;
         const { left, right } = wheelSpeeds(cmd, cur.drive.maxSpeed);
@@ -140,11 +151,13 @@ async function main(): Promise<void> {
     const syncUi = () => {
       builder.setShowing(cur.sceneId === BUILD_SCENE);
       const hasDrive = cur.drive !== null;
-      pad.hidden = !hasDrive;
+      pad.hidden = !hasDrive || program !== null;
       // Touch screens (phones, tablets) get touch wording.
       const touch = window.matchMedia("(pointer: coarse)").matches;
       const view = touch ? "drag to orbit · pinch to zoom" : "drag to orbit · scroll to zoom";
-      hint.textContent = hasDrive
+      hint.textContent = program
+        ? `Your program is driving · ${view}`
+        : hasDrive
         ? `${touch ? "Drive with the arrow pad" : "Drive with arrow keys or WASD"} · ${view}`
         : view[0]!.toUpperCase() + view.slice(1);
       if (cur.sceneId === BUILD_SCENE) {
@@ -180,6 +193,7 @@ async function main(): Promise<void> {
 
     const swapIn = (sim: Sim, sceneId: string, keepCamera: boolean) => {
       clearError();
+      if (program) stopProgram("Stopped: the scene changed. Press Run to start it on this robot.");
       const old = cur.sim;
       cur = makeCurrent(sim, sceneId);
       override = null;
@@ -230,6 +244,7 @@ async function main(): Promise<void> {
     });
     let builderOpen = false;
     const setBuilderOpen = (open: boolean) => {
+      if (open && codeOpen) setCodeOpen(false, false);
       builderOpen = open;
       builderPanel.hidden = !open;
       builderToggle.setAttribute("aria-expanded", String(open));
@@ -240,11 +255,84 @@ async function main(): Promise<void> {
     builderToggle.addEventListener("click", () => setBuilderOpen(!builderOpen));
     $("#builder-close").addEventListener("click", () => setBuilderOpen(false));
     window.addEventListener("keydown", (e) => {
-      // Escape closes the builder, unless it's closing a control's own popup.
-      if (e.key === "Escape" && builderOpen && !e.defaultPrevented && !(e.target instanceof HTMLSelectElement)) {
+      // Escape closes a panel, unless it's closing a control's own popup.
+      if (e.key !== "Escape" || e.defaultPrevented || e.target instanceof HTMLSelectElement) return;
+      if (builderOpen) {
         e.preventDefault();
         setBuilderOpen(false);
+      } else if (codeOpen) {
+        e.preventDefault();
+        setCodeOpen(false);
       }
+    });
+
+    // ---- Code panel (controller programs) ------------------------------------
+    const codePanelEl = $("#code");
+    const codeToggle = $<HTMLButtonElement>("#code-toggle");
+    let codeOpen = false;
+    function setCodeOpen(open: boolean, moveFocus = true): void {
+      if (open && builderOpen) setBuilderOpen(false);
+      codeOpen = open;
+      codePanelEl.hidden = !open;
+      codeToggle.setAttribute("aria-expanded", String(open));
+      document.body.classList.toggle("coding", open);
+      if (!moveFocus) return;
+      // On touch screens, focusing the editor would pop up the keyboard over the sim.
+      if (open) (window.matchMedia("(pointer: coarse)").matches ? code.firstControl : code.editor).focus();
+      else codeToggle.focus();
+    }
+    codeToggle.addEventListener("click", () => setCodeOpen(!codeOpen));
+    $("#code-close").addEventListener("click", () => setCodeOpen(false));
+
+    /** The code of the program last started, for restarting it on Reset. */
+    let programCode: string | null = null;
+
+    const stopProgram = (message: string) => {
+      program?.stop();
+      program = null;
+      programCode = null;
+      code.setRunning(false, message);
+      syncUi();
+    };
+
+    const startProgram = (text: string) => {
+      program?.stop();
+      program = null;
+      programFailure = null;
+      if (!cur.drive) {
+        code.setRunning(false, "This scene has no robot to drive. Pick Hello rover, Sensor playground or your own robot.");
+        return;
+      }
+      cur.sim.reset();
+      override = null;
+      programCode = text;
+      const sim = cur.sim;
+      const ctl: Controller = startInWorker(
+        sim,
+        text,
+        {
+          onLogs: (lines) => code.addOutput(lines),
+          onError: (err) => {
+            if (program !== ctl) return;
+            program = null;
+            programCode = null;
+            programFailure = formatProgramError(err);
+            code.setRunning(false);
+            code.showError(err);
+            syncUi();
+          },
+        },
+        () => loop.pump(),
+      );
+      program = ctl;
+      code.setRunning(true, `Running on ${sim.modelName || "the robot"}.`);
+      syncUi();
+    };
+
+    const code = new CodePanel($("#code-body"), {
+      initialCode: STARTER_CODE,
+      onRun: startProgram,
+      onStop: () => stopProgram("Stopped."),
     });
     syncUi();
 
@@ -340,7 +428,12 @@ async function main(): Promise<void> {
       hud.textContent = `t ${cur.sim.time.toFixed(1)}s · ${fps.toFixed(0)} fps · ${(realtimeFactor * 100).toFixed(0)}% real-time${q}`;
     }, 250);
 
-    $("#reset").addEventListener("click", () => cur.sim.reset());
+    // Reset restarts a running program too, so it starts from the beginning.
+    const resetAll = () => {
+      if (program && programCode !== null) startProgram(programCode);
+      else cur.sim.reset();
+    };
+    $("#reset").addEventListener("click", resetAll);
     const pauseBtn = $<HTMLButtonElement>("#pause");
     pauseBtn.addEventListener("click", () => {
       loop.paused = !loop.paused;
@@ -359,13 +452,19 @@ async function main(): Promise<void> {
       setDrive: (forward: number, turn: number) => {
         override = { forward, turn };
       },
-      reset: () => cur.sim.reset(),
+      reset: resetAll,
       scene: () => cur.sceneId,
       modelName: () => cur.sim.modelName,
       loadError: () => lastError,
       drawnGeoms: () => view.drawnCount,
       builderSpec: () => builder.spec,
       cameraPos: () => view.camera.position.toArray(),
+      program: () => ({
+        state: program ? "running" : programFailure ? "failed" : "none",
+        error: programFailure,
+        wheels: program?.wheels ?? { left: 0, right: 0 },
+        time: program?.time ?? 0,
+      }),
     } satisfies Partial<TestHooks>);
     hooks.ready = true;
     status.hidden = true;
@@ -377,6 +476,15 @@ async function main(): Promise<void> {
     console.error(err);
   }
 }
+
+/** What the code editor starts with. */
+const STARTER_CODE = `// Your robot's program. Pick an example above, or write your own.
+// Top-level code runs once; loop() runs 50 times a second.
+
+function loop() {
+  robot.setWheels(0.5, 0.5); // both wheels half speed forward
+}
+`;
 
 function makeCurrent(sim: Sim, sceneId: string): Current {
   const left = sim.actuatorId("left");
