@@ -414,6 +414,134 @@ button:focus-visible {
   background: #fff6f1;
 }
 
+/* ---- Code panel (shares the builder's panel layout) ---- */
+
+.code-panel {
+  width: min(440px, 42vw);
+}
+
+.code-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+}
+
+.c-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.c-row select {
+  flex: 1;
+  min-width: 0;
+}
+
+.code-panel label[for] {
+  margin: 0;
+}
+
+.c-editor {
+  width: 100%;
+  min-height: 240px;
+  flex: 1 0 auto;
+  resize: vertical;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--ink);
+  background: #fbfcfd;
+  tab-size: 2;
+  white-space: pre;
+  overflow: auto;
+}
+
+.c-editor:focus-visible,
+.code-panel select:focus-visible,
+.c-output:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.c-help {
+  margin: 0;
+}
+
+.c-help code {
+  font-size: 12px;
+  background: #f1f4f8;
+  padding: 0 3px;
+  border-radius: 4px;
+}
+
+.c-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.c-run {
+  flex: 1;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.c-run:hover {
+  background: #d9622f;
+}
+
+.c-stop {
+  flex: 1;
+}
+
+.c-stop:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.c-status {
+  margin: 0;
+  min-height: 1.2em;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.c-error {
+  margin: 0;
+}
+
+.c-error[hidden],
+.c-output[hidden] {
+  display: none;
+}
+
+.c-output {
+  margin: 0;
+  max-height: 140px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #1d2230;
+  color: #e8ecf2;
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+#code-toggle[aria-expanded="true"] {
+  border-color: var(--accent);
+  background: #fff6f1;
+}
+
+@media (pointer: coarse) {
+  .c-editor {
+    font-size: 16px;
+  }
+}
+
 .viewport canvas {
   display: block;
   width: 100%;
@@ -499,6 +627,13 @@ button:focus-visible {
   border-radius: 8px;
 }
 
+/* Narrow phones: keep the header's four buttons on one row with the name. */
+@media (max-width: 420px) {
+  .tag {
+    display: none;
+  }
+}
+
 @media (max-width: 600px) {
   .bar {
     flex-wrap: wrap;
@@ -507,6 +642,10 @@ button:focus-visible {
   }
   .actions {
     margin-left: auto;
+    gap: 6px;
+  }
+  .actions button {
+    padding: 6px 10px;
   }
   .scene-controls {
     order: 3;
@@ -549,6 +688,13 @@ button:focus-visible {
   }
   .builder-form {
     padding: 0 12px 12px;
+  }
+  .code-body {
+    padding-top: 8px;
+  }
+  .c-editor {
+    min-height: 160px;
+    font-size: 16px;
   }
   .b-name input {
     font-size: 16px;

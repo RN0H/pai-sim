@@ -29,9 +29,14 @@ export class SimLoop {
   private simTimeWindow = 0;
   private windowStart = 0;
 
+  /**
+   * @param beforeStep called before every physics step. Returning `false`
+   *   holds physics (e.g. while a controller program computes its next
+   *   command); call `pump()` to continue once it's ready.
+   */
   constructor(
     private sim: Sim,
-    private readonly beforeStep: (sim: Sim) => void,
+    private readonly beforeStep: (sim: Sim) => boolean | void,
     private readonly onFrame: (sim: Sim) => void,
   ) {}
 
@@ -47,18 +52,9 @@ export class SimLoop {
       const dt = Math.min((now - this.last) / 1000, MAX_FRAME_SECONDS);
       this.last = now;
       if (!this.paused) {
-        this.accum += dt;
-        const h = this.sim.timestep;
-        let steps = 0;
-        while (this.accum >= h && steps < MAX_STEPS_PER_FRAME) {
-          this.beforeStep(this.sim);
-          this.sim.step();
-          this.accum -= h;
-          this.simTimeWindow += h;
-          steps++;
-        }
-        if (steps === MAX_STEPS_PER_FRAME) this.accum = 0; // drop the backlog
-
+        // While held, don't pile up more than one frame's worth of backlog.
+        this.accum = Math.min(this.accum + dt, MAX_FRAME_SECONDS);
+        this.run();
       }
       this.onFrame(this.sim);
       this.frames++;
@@ -73,6 +69,24 @@ export class SimLoop {
       this.raf = requestAnimationFrame(tick);
     };
     this.raf = requestAnimationFrame(tick);
+  }
+
+  /** Run the physics steps owed since the last frame (after a hold in `beforeStep`). */
+  pump(): void {
+    if (!this.paused) this.run();
+  }
+
+  private run(): void {
+    const h = this.sim.timestep;
+    let steps = 0;
+    while (this.accum >= h && steps < MAX_STEPS_PER_FRAME) {
+      if (this.beforeStep(this.sim) === false) return; // held: keep the backlog
+      this.sim.step();
+      this.accum -= h;
+      this.simTimeWindow += h;
+      steps++;
+    }
+    if (steps === MAX_STEPS_PER_FRAME) this.accum = 0; // drop the backlog
   }
 
   stop(): void {
