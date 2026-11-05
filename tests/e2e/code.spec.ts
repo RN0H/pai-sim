@@ -107,8 +107,21 @@ test("avoid example doesn't hit a wall in 10 s", async ({ page }) => {
   for (const [x, y] of samples) {
     expect(Math.max(Math.abs(x), Math.abs(y))).toBeLessThan(PEN_HALF - ROBOT_REACH);
   }
-  const stats = await page.evaluate(() => window.__paiSim.stats());
-  expect(stats.realtimeFactor).toBeGreaterThan(0.8);
+  expect(errors).toEqual([]);
+});
+
+test("a running program keeps real time", async ({ page }) => {
+  const errors = await openSim(page);
+  await openPanel(page);
+  await runExample(page, "Avoid obstacles");
+  await page.waitForTimeout(1000);
+  const samples: number[] = [];
+  for (let i = 0; i < 5; i++) {
+    await page.waitForTimeout(600);
+    samples.push(await page.evaluate(() => window.__paiSim.stats().realtimeFactor));
+  }
+  expect([...samples].sort((a, b) => a - b)[2], samples.join(", ")).toBeGreaterThan(0.8);
+  expect((await program(page)).state).toBe("running");
   expect(errors).toEqual([]);
 });
 
@@ -125,28 +138,94 @@ test("follow example stays on the line", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+/** Animation frames the page draws in 800 ms. */
+const framesIn800ms = (page: Page) =>
+  page.evaluate(
+    () =>
+      new Promise<number>((done) => {
+        let n = 0;
+        const start = performance.now();
+        const f = () => (performance.now() - start < 800 ? (n++, requestAnimationFrame(f)) : done(n));
+        requestAnimationFrame(f);
+      }),
+  );
+
+/**
+ * While a program is stuck, the page renders at about its normal frame rate
+ * (`baseline`, measured before), and buttons and typing work.
+ */
+async function expectResponsive(page: Page, baseline: number, held: boolean) {
+  const simTime = await page.evaluate(() => window.__paiSim.time());
+  const frames = await framesIn800ms(page);
+  expect(frames).toBeGreaterThanOrEqual(Math.max(2, Math.floor(baseline / 2)));
+  await page.getByRole("button", { name: "Pause" }).click();
+  await expect(page.getByRole("button", { name: "Play" })).toBeVisible();
+  await page.getByRole("button", { name: "Play" }).click();
+  await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+  await editor(page).press("End");
+  await editor(page).type(" // typed while stuck");
+  await expect(editor(page)).toHaveValue(/typed while stuck/);
+  // Physics is held at the control tick while the program hasn't answered.
+  if (held) expect(await page.evaluate(() => window.__paiSim.time())).toBeCloseTo(simTime, 1);
+}
+
+test("an endless loop in the top-level code is stopped too", async ({ page }) => {
+  const errors = await openSim(page);
+  await openPanel(page);
+  await editor(page).fill("robot.setWheels(1, 1);\nwhile (true) {}\n");
+  const baseline = await framesIn800ms(page);
+  await panel(page).getByRole("button", { name: "Run" }).click();
+  await expectResponsive(page, baseline, true); // the watchdog waits 5 s here
+  const alert = panel(page).getByRole("alert");
+  await expect(alert).toContainText("top-level code didn't finish within 5 seconds", { timeout: 10_000 });
+  expect((await program(page)).state).toBe("failed");
+  expect((await program(page)).wheels).toEqual({ left: 0, right: 0 });
+  expect(errors).toEqual([]);
+});
+
+test("a program can't message the page or use the network, nor dodge the watchdog", async ({ page }) => {
+  const errors = await openSim(page);
+  await openPanel(page);
+  await editor(page).fill(
+    "console.log(typeof postMessage, typeof fetch, typeof XMLHttpRequest, typeof importScripts, typeof Object.getPrototypeOf(self).postMessage);\n",
+  );
+  await panel(page).getByRole("button", { name: "Run" }).click();
+  await expect(panel(page).getByLabel("Program output")).toHaveText("undefined undefined undefined undefined undefined");
+  // Taking over the worker's message handler doesn't dodge the watchdog either.
+  await editor(page).fill("function loop() {\n  try { self.onmessage = null; } catch (e) {}\n  while (true) {}\n}\n");
+  await panel(page).getByRole("button", { name: "Restart" }).click();
+  await expect(panel(page).getByRole("alert")).toContainText("didn't finish", { timeout: 10_000 });
+  expect(errors).toEqual([]);
+});
+
+test("changing the scene stops the program; scenes without a robot say so", async ({ page }) => {
+  const errors = await openSim(page);
+  await openPanel(page);
+  await panel(page).getByRole("button", { name: "Run" }).click();
+  await expect.poll(() => program(page).then((p) => p.state)).toBe("running");
+  await page.locator("#scene-picker").selectOption("hello");
+  await expect.poll(() => program(page).then((p) => p.state)).toBe("none");
+  await expect(panel(page).getByRole("status")).toContainText("the scene changed");
+  await expect(page.locator("#drive-pad")).toBeVisible();
+  await page.locator("#scene-picker").selectOption("arm");
+  await panel(page).getByRole("button", { name: "Run" }).click();
+  await expect(panel(page).getByRole("status")).toContainText("no robot to drive");
+  expect((await program(page)).state).toBe("none");
+  expect(errors).toEqual([]);
+});
+
 test("an endless loop is stopped with an error and the page stays responsive", async ({ page }) => {
   const errors = await openSim(page);
   await openPanel(page);
   await editor(page).fill("let n = 0;\nfunction loop() {\n  while (true) {}\n}\n");
+  const baseline = await framesIn800ms(page);
   await panel(page).getByRole("button", { name: "Run" }).click();
-  // While the worker is stuck (the watchdog waits 1 s) the page still renders and reacts.
-  const frames = await page.evaluate(
-    () => new Promise<number>((done) => {
-      let n = 0;
-      const start = performance.now();
-      const f = () => (performance.now() - start < 800 ? (n++, requestAnimationFrame(f)) : done(n));
-      requestAnimationFrame(f);
-    }),
-  );
-  expect(frames).toBeGreaterThan(1);
-  await page.getByRole("button", { name: "Pause" }).click();
-  await expect(page.getByRole("button", { name: "Play" })).toBeVisible();
-  await page.getByRole("button", { name: "Play" }).click();
+  // While the worker is stuck the page still renders and reacts (the 1 s watchdog may fire meanwhile).
+  await expectResponsive(page, baseline, false);
 
   const alert = panel(page).getByRole("alert");
   await expect(alert).toBeVisible({ timeout: 10_000 });
-  await expect(alert).toContainText("didn't finish within 1 second");
+  await expect(alert).toContainText("Your loop() didn't finish within 1 second");
   expect((await program(page)).state).toBe("failed");
   // Physics carries on after the program is stopped.
   const t1 = await page.evaluate(() => window.__paiSim.time());

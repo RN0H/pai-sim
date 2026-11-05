@@ -42,6 +42,8 @@ export class CodePanel {
   private readonly output: HTMLElement;
   private outputLines: string[] = [];
   private errorLine: number | null = null;
+  /** Bumped whenever the error box changes, so a delayed show can tell it's stale. */
+  private errorSeq = 0;
   /** The user has typed since the last example was loaded. */
   private edited = false;
 
@@ -158,14 +160,23 @@ export class CodePanel {
   }
 
   showError(err: ProgramError): void {
+    const seq = ++this.errorSeq;
     this.errorLine = err.line;
-    this.errorText.textContent = formatProgramError(err);
     this.errorLineBtn.hidden = err.line === null;
-    this.errorBox.hidden = false;
+    // Clear first so screen readers announce the same error again.
+    this.errorBox.hidden = true;
+    this.errorText.textContent = "";
+    const text = formatProgramError(err);
+    requestAnimationFrame(() => {
+      if (this.errorSeq !== seq) return; // replaced or cleared meanwhile
+      this.errorText.textContent = text;
+      this.errorBox.hidden = false;
+    });
     this.setStatus("");
   }
 
   clearError(): void {
+    this.errorSeq++;
     this.errorLine = null;
     this.errorBox.hidden = true;
   }

@@ -137,15 +137,19 @@ _(Agents: add dated notes here when stopping partway through a milestone.)_
   - Program shape: top-level code runs once on the first tick; a top-level
     `function loop() {}` runs every tick (50 Hz). `robot.setWheels(l, r)`
     takes -1..1 (fraction of the motor's top speed, i.e. the actuator's
-    upper ctrlrange capped at 30 rad/s); `robot.time` counts control ticks
-    since the program started; `console.log` shows in the panel. Blockly
+    upper ctrlrange capped at 30 rad/s); `robot.time` is seconds since the
+    program started (1/50 s per control tick); `console.log` shows in the panel. Blockly
     should generate this same shape.
   - Lockstep: physics holds at every control tick until the worker answers
     (`SimLoop` `beforeStep` returning false + `pump()`), so runs are
     deterministic regardless of device speed. M6 can rely on that.
   - Run resets the scene; Reset restarts a running program; changing the
     scene stops it. A tick that takes over 1 s (5 s for the first, which
-    also loads the worker) terminates the worker; no line number for that.
+    also loads the worker and runs the top-level code) terminates the
+    worker and stops the program with an error (no line number for that);
+    the next Run starts a fresh worker. Replies are checked (`parseReply`)
+    and the worker removes `postMessage` and network APIs before user code
+    runs, since M6 links will run other people's code.
   - Bundled "Sensor playground" scene (`?scene=sensors`): Sensor bot in a
     3 m walled pen with a circular line (radius 0.8 m). M5 may fold it into
     the environments.

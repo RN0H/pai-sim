@@ -27,7 +27,7 @@ class RobotUsageError extends Error {
   }
 }
 
-/** Wraps user code. Kept on one line so user line N is wrapper line N + HEADER_LINES. */
+/** Wraps user code. Where user line 1 ends up in stack traces is measured by `firstUserLine()`. */
 const HEADER = '"use strict";\n';
 const FOOTER = '\n;return typeof loop === "function" ? loop : null;';
 const PARAMS = ["robot", "console"] as const;
@@ -39,6 +39,8 @@ function frameLine(err: unknown): number | null {
   const stack = err instanceof Error && typeof err.stack === "string" ? err.stack : "";
   const m = FRAME_RE.exec(stack);
   if (m) return Number(m[1]);
+  // API misuse is thrown from our code, so its own line isn't the user's.
+  if (err instanceof RobotUsageError) return null;
   // Safari puts the line on the error itself for the throwing frame.
   const line = (err as { line?: unknown } | null)?.line;
   return typeof line === "number" ? line : null;

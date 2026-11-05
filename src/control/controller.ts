@@ -11,7 +11,7 @@
  */
 import { DEFAULT_DRIVE_SPEED, MAX_DRIVE_SPEED } from "../app/drive";
 import type { Sim } from "../physics/engine";
-import { CONTROL_HZ, type ProgramError, type Reply, type TickMessage } from "./api";
+import { CONTROL_HZ, parseReply, type ProgramError, type TickMessage } from "./api";
 import { ProgramRunner } from "./program";
 
 /** Where ticks go. The brain answers each one by calling `controller.receive()`, possibly right away. */
@@ -42,14 +42,18 @@ function wheel(sim: Sim, name: string): Wheel | null {
   return { id, top };
 }
 
+/** Named sensors and where their first value sits in `sensordata`. */
+function sensorSlots(sim: Sim): [string, number][] {
+  return sim
+    .sensorNames()
+    .map((name, i): [string, number] => [name, sim.model.sensor_adr[i]!])
+    .filter(([name]) => name !== "");
+}
+
 /** First value of every named sensor. */
-export function readSensors(sim: Sim): Record<string, number> {
+export function readSensors(sim: Sim, slots = sensorSlots(sim)): Record<string, number> {
   const out: Record<string, number> = {};
-  const names = sim.sensorNames();
-  for (let i = 0; i < names.length; i++) {
-    const name = names[i]!;
-    if (name) out[name] = sim.data.sensordata[sim.model.sensor_adr[i]!]!;
-  }
+  for (const [name, adr] of slots) out[name] = sim.data.sensordata[adr]!;
   return out;
 }
 
@@ -59,6 +63,7 @@ export class Controller {
   private readonly leftWheel: Wheel | null;
   private readonly rightWheel: Wheel | null;
   private readonly stepsPerTick: number;
+  private readonly slots: [string, number][];
   private stepsToTick = 0;
   private ticks = 0;
   private seq = 0;
@@ -80,7 +85,10 @@ export class Controller {
   ) {
     this.leftWheel = wheel(sim, "left");
     this.rightWheel = wheel(sim, "right");
+    // If the timestep doesn't divide 1/50 s, ticks come every whole number
+    // of steps closest to it (robot.time still counts 1/50 s per tick).
     this.stepsPerTick = Math.max(1, Math.round(1 / CONTROL_HZ / sim.timestep));
+    this.slots = sensorSlots(sim);
   }
 
   get state(): ControllerState {
@@ -110,7 +118,7 @@ export class Controller {
     if (this.waiting) return false;
     if (this.stepsToTick === 0) {
       this.waiting = true;
-      const msg: TickMessage = { type: "tick", seq: ++this.seq, time: this.time, sensors: readSensors(this.sim) };
+      const msg: TickMessage = { type: "tick", seq: ++this.seq, time: this.time, sensors: readSensors(this.sim, this.slots) };
       if (this.seq === 1) msg.code = this.code;
       this.brain.send(msg); // may reply synchronously
       if (this.waiting) return false;
@@ -120,9 +128,17 @@ export class Controller {
     return true;
   }
 
-  /** A reply from the brain. */
-  receive(reply: Reply): void {
-    if (this._state !== "running" || reply.seq !== this.seq || !this.waiting) return;
+  /** A reply from the brain (checked: anything malformed fails the program). */
+  receive(data: unknown): void {
+    if (this._state !== "running" || !this.waiting) return;
+    const reply = parseReply(data);
+    if (reply === null) {
+      this.waiting = false;
+      this.fail({ kind: "runtime", line: null, message: "The program's worker sent a message that isn't a wheel command." });
+      this.onResume();
+      return;
+    }
+    if (reply.seq !== this.seq) return;
     this.waiting = false;
     if (reply.logs.length) this.events.onLogs?.(reply.logs);
     if (reply.type === "error") {

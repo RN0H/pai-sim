@@ -66,3 +66,28 @@ export type Reply = CommandReply | ErrorReply;
 export function formatProgramError(err: ProgramError): string {
   return err.line !== null ? `Line ${err.line}: ${err.message}` : err.message;
 }
+
+const isLogs = (v: unknown): v is string[] => Array.isArray(v) && v.length <= MAX_LOG_LINES && v.every((x) => typeof x === "string");
+const finite1 = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0);
+
+/**
+ * Check a message from the worker. Anything that isn't a well-formed reply
+ * gives null; wheel speeds are clamped to [-1, 1] and must be finite.
+ */
+export function parseReply(data: unknown): Reply | null {
+  if (typeof data !== "object" || data === null) return null;
+  const d = data as Record<string, unknown>;
+  if (typeof d.seq !== "number" || !isLogs(d.logs)) return null;
+  const logs = d.logs.map((l) => l.slice(0, MAX_LOG_CHARS));
+  if (d.type === "cmd") {
+    if (typeof d.left !== "number" || typeof d.right !== "number" || !Number.isFinite(d.left) || !Number.isFinite(d.right)) return null;
+    return { type: "cmd", seq: d.seq, left: finite1(d.left), right: finite1(d.right), logs };
+  }
+  if (d.type === "error") {
+    const kind = d.kind === "syntax" || d.kind === "runtime" || d.kind === "timeout" ? d.kind : "runtime";
+    const line = typeof d.line === "number" && Number.isInteger(d.line) && d.line > 0 ? d.line : null;
+    const message = typeof d.message === "string" ? d.message.slice(0, 500) : "The program failed.";
+    return { type: "error", seq: d.seq, kind, line, message, logs };
+  }
+  return null;
+}

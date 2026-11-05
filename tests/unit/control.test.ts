@@ -390,3 +390,27 @@ describe("example programs in the Sensor playground", () => {
     expect(sim.instabilityCount()).toBe(0);
   });
 });
+
+describe("replies from the worker are checked", () => {
+  it("parseReply accepts good replies, clamps wheels and rejects malformed ones", async () => {
+    const { parseReply } = await import("../../src/control/api");
+    expect(parseReply({ type: "cmd", seq: 1, left: 0.5, right: 3, logs: [] })).toEqual({ type: "cmd", seq: 1, left: 0.5, right: 1, logs: [] });
+    expect(parseReply({ type: "error", seq: 2, kind: "runtime", line: 3, message: "x", logs: ["a"] })).toMatchObject({ line: 3, message: "x" });
+    expect(parseReply({ type: "error", seq: 2, kind: "evil", line: -4, logs: [] })).toMatchObject({ kind: "runtime", line: null });
+    for (const bad of [null, 5, {}, { type: "cmd", seq: 1, left: NaN, right: 0, logs: [] }, { type: "cmd", seq: 1, left: 1e9 }, { type: "cmd", seq: 1, left: 0, right: 0, logs: [1] }, { type: "x", seq: 1, logs: [] }]) {
+      expect(parseReply(bad)).toBeNull();
+    }
+  });
+
+  it("a malformed reply fails the program and stops the wheels", () => {
+    const sim = make(compile(templateSpec("sensor-bot")));
+    const brain = new ManualBrain();
+    const ctl = new Controller(sim, "", brain);
+    brain.controller = ctl;
+    ctl.beforeStep();
+    ctl.receive({ type: "cmd", seq: 1, left: Infinity, right: 0, logs: [] });
+    expect(ctl.state).toBe("failed");
+    expect(sim.data.ctrl[sim.actuatorId("left")]).toBe(0);
+    expect(brain.disposed).toBe(true);
+  });
+});
