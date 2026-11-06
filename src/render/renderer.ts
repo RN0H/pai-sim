@@ -211,6 +211,14 @@ export class SceneRenderer {
     this.resize();
   }
 
+  /** The WebGL renderer's name (e.g. "ANGLE (… SwiftShader …)"), if the browser tells us. */
+  get glRendererName(): string | null {
+    const gl = this.renderer.getContext();
+    const info = gl.getExtension("WEBGL_debug_renderer_info");
+    const name: unknown = gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER);
+    return typeof name === "string" ? name : null;
+  }
+
   get isLowQuality(): boolean {
     return this.lowQuality;
   }

@@ -9,6 +9,7 @@ import type { RobotSpec } from "./robot/spec";
 import { BuilderPanel } from "./ui/builder";
 import { buildScene } from "./ui/builderModel";
 import { CodePanel } from "./ui/codePanel";
+import { isSoftwareRenderer } from "./render/software";
 import type { Controller } from "./control/controller";
 import { formatProgramError } from "./control/api";
 import { startInWorker } from "./control/host";
@@ -417,8 +418,11 @@ async function main(): Promise<void> {
 
     // Adaptive quality: if the device can't hold ~24 fps, drop to the cheap
     // renderer. Accessibility on low-end hardware is a core goal.
+    // Software-rendered WebGL (no GPU) is always slow: start in lite mode, so
+    // the first seconds run in real time too.
     if (params.get("quality") === "low") view.setLowQuality(true);
     else if (params.get("quality") !== "high") {
+      if (isSoftwareRenderer(view.glRendererName)) view.setLowQuality(true);
       setTimeout(() => {
         if (loop.stats.fps > 0 && loop.stats.fps < 24) view.setLowQuality(true);
       }, 2500);
