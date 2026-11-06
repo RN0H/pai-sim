@@ -178,6 +178,40 @@ test("going back to blocks after editing the code asks first", async ({ page }) 
   expect(errors).toEqual([]);
 });
 
+test("an example loaded as code comes along as blocks", async ({ page }) => {
+  const { errors } = await openSim(page);
+  await page.getByRole("button", { name: "Code", exact: true }).click();
+  await panel(page).getByLabel("Examples").selectOption({ label: "Follow a line" });
+  await expect(editor(page)).toHaveValue(/Follow a line/);
+  await viewButton(page, "Blocks").click();
+  await expect(block(page, "left line probe")).toBeVisible();
+  await expect(panel(page).locator(".c-status")).toContainText("Follow a line");
+  await viewButton(page, "Code").click();
+  await expect(editor(page)).toHaveValue(/robot\.read\("line_left"\)/);
+  expect(errors).toEqual([]);
+});
+
+test("Blockly's menus close on switching view; Escape in the workspace closes the panel", async ({ page }) => {
+  const { errors } = await openSim(page);
+  await openBlocks(page);
+  await block(page, "set wheels left").locator(".blocklyEditableField").first().click();
+  const field = page.locator(".blocklyWidgetDiv input");
+  await expect(field).toBeVisible();
+  await viewButton(page, "Code").click();
+  await expect(field).toBeHidden();
+
+  await viewButton(page, "Blocks").click();
+  await block(page, "set wheels left").locator(".blocklyEditableField").first().click();
+  await expect(field).toBeVisible();
+  await field.press("Escape"); // closes the field editor, not the panel
+  await expect(field).toBeHidden();
+  await expect(panel(page)).toBeVisible();
+  await workspace(page).locator(".blocklyWorkspace").first().focus();
+  await page.keyboard.press("Escape");
+  await expect(panel(page)).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
 test("keyboard: the view switch and the workspace are reachable, Ctrl+Enter runs from the blocks", async ({ page }) => {
   const { errors } = await openSim(page);
   await page.getByRole("button", { name: "Code", exact: true }).click();

@@ -257,8 +257,8 @@ async function main(): Promise<void> {
     window.addEventListener("keydown", (e) => {
       // Escape closes a panel, unless it's closing a control's own popup.
       if (e.key !== "Escape" || e.defaultPrevented || e.target instanceof HTMLSelectElement) return;
-      // In the blocks, Escape belongs to Blockly (closing menus, leaving move mode).
-      if (e.target instanceof Element && e.target.closest(".c-blocks, .blocklyWidgetDiv, .blocklyDropDownDiv")) return;
+      // In Blockly's menus and field editors, Escape closes them, not the panel.
+      if (e.target instanceof Element && e.target.closest(".blocklyWidgetDiv, .blocklyDropDownDiv")) return;
       if (builderOpen) {
         e.preventDefault();
         setBuilderOpen(false);
@@ -275,6 +275,7 @@ async function main(): Promise<void> {
     function setCodeOpen(open: boolean, moveFocus = true): void {
       if (open && builderOpen) setBuilderOpen(false);
       codeOpen = open;
+      if (!open) code.hidePopups();
       codePanelEl.hidden = !open;
       codeToggle.setAttribute("aria-expanded", String(open));
       document.body.classList.toggle("coding", open);

@@ -221,7 +221,8 @@ export const TOOLBOX = {
       categorystyle: "loop_category",
       contents: [
         { kind: "block", type: "controls_repeat_ext", inputs: { TIMES: shadowNum(10) } },
-        { kind: "block", type: "controls_whileUntil" },
+        // No "repeat while": sensors only change between ticks, so a beginner's
+        // "repeat while distance > 0.3" would never end. Use "every tick" + "if".
         {
           kind: "block",
           type: "controls_for",

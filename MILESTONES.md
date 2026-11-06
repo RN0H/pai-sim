@@ -171,8 +171,11 @@ _(Agents: add dated notes here when stopping partway through a milestone.)_
     view is in use, not only the generated code.
   - Blockly's images/cursors are served from `public/blockly-media/` (no
     CDN requests; an e2e test checks).
-  - `SimLoop` now skips drawing while a program holds physics and is more
-    than 50 ms behind (drawing at least every 250 ms): on software-rendered
+  - No "repeat while" block: sensors only change between ticks, so it
+    would loop forever. Escape inside a Blockly menu closes the menu only.
+  - `SimLoop` now skips drawing while a program holds physics, is more than
+    50 ms behind and drawing is slow (> 50 ms per frame), drawing at least
+    every 250 ms; `stats.fps` counts frames drawn. On software-rendered
     Chrome (~150 ms per frame) each worker round trip waited a whole frame,
     so programs ran at ~20% real time. The "running program keeps real time"
     e2e failed on `main` in this environment before the fix.

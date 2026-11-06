@@ -94,6 +94,13 @@ export class BlocksEditor {
     return workspaceToProgram(this.ws);
   }
 
+  /** Close open menus, field editors and the toolbox flyout. */
+  hidePopups(): void {
+    Blockly.hideChaff();
+    Blockly.WidgetDiv.hide();
+    Blockly.DropDownDiv.hideWithoutAnimation();
+  }
+
   resize(): void {
     if (this.container.offsetWidth > 0) Blockly.svgResize(this.ws);
   }

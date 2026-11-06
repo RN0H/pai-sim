@@ -196,7 +196,10 @@ describe("Blockly stays out of the first page load", () => {
       if (allowed.has(file)) continue;
       const text = readFileSync(file, "utf8");
       // `import type` is erased at build time, so it's fine.
-      const staticImports = text.match(/^import\s+(?!type\b)[^;]*?from\s+"([^"]+)"/gms) ?? [];
+      const staticImports = [
+        ...(text.match(/^(?:import|export)\s+(?!type\b)[^;]*?from\s+"[^"]+"/gms) ?? []),
+        ...(text.match(/^import\s+"[^"]+"/gm) ?? []), // side-effect imports
+      ];
       for (const imp of staticImports) {
         expect(imp, `${file} loads Blockly eagerly`).not.toMatch(/"blockly|\/blocks"|\/blocksEditor"/);
       }

@@ -62,6 +62,10 @@ export class CodePanel {
   private blocksLoading: Promise<BlocksEditor | null> | null = null;
   /** The code the blocks last generated (what the textarea held then). */
   private blocksCode: string | null = null;
+  /** The example last loaded into the Code view (its blocks are used on switching to Blocks). */
+  private loadedExample: string | null = null;
+  /** Bumped by every setView(), so a switch waiting for Blockly to load can tell it's stale. */
+  private viewRequest = 0;
 
   constructor(
     root: HTMLElement,
@@ -85,6 +89,7 @@ export class CodePanel {
       if (this.edited && this.editor.value.trim() && this.editor.value !== ex.code && !this.confirmReplace("code")) return;
       this.editor.value = ex.code;
       this.edited = false;
+      this.loadedExample = ex.id;
       this.setStatus(`Loaded the "${ex.name}" example. Press Run to try it.`);
     });
     const exampleRow = el(
@@ -142,7 +147,10 @@ export class CodePanel {
     this.editor.setAttribute("autocorrect", "off");
     this.editor.setAttribute("aria-describedby", helpId);
     this.editor.setAttribute("wrap", "off");
-    this.editor.addEventListener("input", () => (this.edited = true));
+    this.editor.addEventListener("input", () => {
+      this.edited = true;
+      this.loadedExample = null;
+    });
     // Ctrl/Cmd+Enter runs, like many code playgrounds.
     this.editor.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
@@ -271,24 +279,42 @@ export class CodePanel {
    * the code asks first: the blocks' code replaces those edits.
    */
   async setView(view: EditorView): Promise<void> {
-    if (view === this.view) return;
+    const request = ++this.viewRequest;
     if (view === "code") {
+      if (this.blocksLoading) this.setStatus(""); // a pending switch to blocks is cancelled
+      if (this.view === "code") return;
+      this.hidePopups();
       this.view = "code";
       this.showView();
       this.setStatus("Code view: this is the program your blocks make.");
       return;
     }
+    if (this.view === "blocks") return;
+    const example = this.loadedExample !== null && this.editor.value === findExample(this.loadedExample)?.code ? findExample(this.loadedExample)! : null;
     const edits = this.edited && this.editor.value.trim() !== "" && this.editor.value !== this.blocksCode;
     if (edits && !window.confirm("Switch to blocks? Blocks can't be made from code, so your code changes will be replaced by the blocks' program.")) {
       return;
     }
     const blocks = await this.loadBlocks();
-    if (!blocks) return;
+    // Stale: the user pressed Code (or Blocks again) while Blockly was loading.
+    if (!blocks || request !== this.viewRequest) return;
     this.view = "blocks";
     this.showView();
     blocks.resize();
+    // An example just loaded as code comes along as its blocks.
+    let status = "Blocks view. Drag blocks in, then press Run.";
+    if (example && (!blocks.edited || window.confirm(`Replace your blocks with the "${example.name}" example?`))) {
+      blocks.loadExample(example.id);
+      status = `Loaded the "${example.name}" example as blocks. Press Run to try it.`;
+    }
+    this.loadedExample = null;
     this.fromBlocks(blocks.code());
-    this.setStatus("Blocks view. Drag blocks in, then press Run.");
+    this.setStatus(status);
+  }
+
+  /** Close any open Blockly menu or field editor (they float over the page). */
+  hidePopups(): void {
+    this.blocks?.hidePopups();
   }
 
   private loadBlocks(): Promise<BlocksEditor | null> {
@@ -296,6 +322,9 @@ export class CodePanel {
     if (this.blocksLoading) return this.blocksLoading;
     this.setStatus("Loading blocks…");
     this.viewButtons.blocks.setAttribute("aria-busy", "true");
+    // Nothing typed or picked meanwhile may be lost when the blocks take over.
+    this.editor.readOnly = true;
+    this.firstControl.disabled = true;
     this.blocksLoading = import("./blocksEditor")
       .then(({ BlocksEditor }) => {
         // Blockly measures its container, so it must be on screen while it starts.
@@ -309,12 +338,15 @@ export class CodePanel {
         return this.blocks;
       })
       .catch(() => {
-        this.setStatus("The blocks couldn't load. Check your internet connection and try again.");
+        // Browsers remember a failed import(), so only a reload retries it.
+        this.setStatus("The blocks couldn't load. Check your internet connection and reload the page.");
         return null;
       })
       .finally(() => {
         this.blocksLoading = null;
         this.viewButtons.blocks.removeAttribute("aria-busy");
+        this.editor.readOnly = false;
+        this.firstControl.disabled = false;
       });
     return this.blocksLoading;
   }
