@@ -12,6 +12,9 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   outputDir: "test-results",
   use: {
+    // Full Chromium (new headless), not Playwright's headless shell: in CI the
+    // shell froze drawing for ~3.6 s about a second after every page load.
+    ...(executablePath ? {} : { channel: "chromium" }),
     baseURL: "http://localhost:4173/pai-sim/",
     viewport: { width: 1280, height: 800 },
     launchOptions: {
