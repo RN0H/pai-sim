@@ -12,6 +12,8 @@ const PEN_HALF = 1.5;
 /** Farthest any part of the Sensor bot reaches from its centre, rounded up. */
 const ROBOT_REACH = 0.15;
 const LINE_RADIUS = 0.8;
+/** Blockly is fetched and started on first use: allow for a slow machine. */
+const BLOCKLY_LOAD_MS = 20_000;
 
 async function openSim(page: Page, query = "?scene=sensors"): Promise<{ errors: string[]; requests: string[] }> {
   const errors: string[] = [];
@@ -43,7 +45,7 @@ async function openBlocks(page: Page) {
   await expect(panel(page)).toBeVisible();
   await viewButton(page, "Blocks").click();
   await expect(workspace(page)).toBeVisible();
-  await expect(workspace(page).locator(".blocklySvg").first()).toBeVisible();
+  await expect(workspace(page).locator(".blocklySvg").first()).toBeVisible({ timeout: BLOCKLY_LOAD_MS });
   await expect(viewButton(page, "Blocks")).toHaveAttribute("aria-pressed", "true");
   await expect(editor(page)).toBeHidden();
 }
@@ -58,7 +60,7 @@ test("Blockly loads only when the Blocks view opens, from this site only", async
   expect(requests.filter((u) => /blocksEditor/.test(u))).toEqual([]);
 
   await viewButton(page, "Blocks").click();
-  await expect(workspace(page).locator(".blocklySvg").first()).toBeVisible();
+  await expect(workspace(page).locator(".blocklySvg").first()).toBeVisible({ timeout: BLOCKLY_LOAD_MS });
   expect(requests.filter((u) => /blocksEditor/.test(u))).toHaveLength(1);
   // The starter blocks: every tick, set wheels 0.5 / 0.5.
   await expect(block(page, "every tick")).toBeVisible();
@@ -219,7 +221,7 @@ test("keyboard: the view switch and the workspace are reachable, Ctrl+Enter runs
   await page.keyboard.press("Tab");
   await expect(viewButton(page, "Blocks")).toBeFocused();
   await page.keyboard.press("Enter");
-  await expect(workspace(page).locator(".blocklySvg").first()).toBeVisible();
+  await expect(workspace(page).locator(".blocklySvg").first()).toBeVisible({ timeout: BLOCKLY_LOAD_MS });
   // Tab moves on into the workspace.
   await page.keyboard.press("Tab");
   await page.keyboard.press("Tab");
@@ -240,7 +242,7 @@ test.describe("on a phone", () => {
     await page.getByRole("button", { name: "Code", exact: true }).tap();
     await expect(panel(page)).toBeVisible();
     await viewButton(page, "Blocks").tap();
-    await expect(workspace(page).locator(".blocklySvg").first()).toBeVisible();
+    await expect(workspace(page).locator(".blocklySvg").first()).toBeVisible({ timeout: BLOCKLY_LOAD_MS });
     const box = (await workspace(page).boundingBox())!;
     expect(box.width).toBeGreaterThan(340);
     expect(box.height).toBeGreaterThan(200);

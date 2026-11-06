@@ -7,6 +7,9 @@ export default defineConfig({
   testDir: "tests/e2e",
   timeout: 60_000,
   retries: process.env.CI ? 1 : 0,
+  // Real-time checks need the CPU to themselves: two software-rendered
+  // browsers at once on a CI runner each fall below real time.
+  workers: process.env.CI ? 1 : undefined,
   outputDir: "test-results",
   use: {
     baseURL: "http://localhost:4173/pai-sim/",
