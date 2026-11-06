@@ -9,6 +9,8 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   outputDir: "test-results",
   use: {
+    // TEMP experiment: full Chromium (new headless) instead of the headless shell.
+    channel: "chromium",
     baseURL: "http://localhost:4173/pai-sim/",
     viewport: { width: 1280, height: 800 },
     launchOptions: {
