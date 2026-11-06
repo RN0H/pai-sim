@@ -1,21 +1,35 @@
-// TEMPORARY CI diagnostic (to be removed): timing right after load.
-import { test } from "@playwright/test";
-test("diag: first seconds after load", async ({ page }) => {
+// TEMPORARY CI diagnostic (to be removed): what blocks the page right after load.
+import { test, type Page } from "@playwright/test";
+
+async function probe(page: Page, label: string, drive: boolean) {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __long: number[][]; __frames: number[] };
+    w.__long = [];
+    w.__frames = [];
+    try {
+      new PerformanceObserver((l) => l.getEntries().forEach((e) => w.__long.push([Math.round(e.startTime), Math.round(e.duration)]))).observe({ type: "longtask", buffered: true });
+    } catch {}
+    const f = (n: number) => { w.__frames.push(Math.round(n)); if (n < 9000) requestAnimationFrame(f); };
+    requestAnimationFrame(f);
+  });
   await page.goto("./");
   await page.waitForFunction(() => window.__paiSim?.ready);
-  const info = await page.evaluate(() => {
-    const gl = document.createElement("canvas").getContext("webgl2");
-    const e = gl?.getExtension("WEBGL_debug_renderer_info");
-    return { renderer: gl && e ? gl.getParameter(e.UNMASKED_RENDERER_WEBGL) : null, cores: navigator.hardwareConcurrency };
-  });
-  console.log("DIAG", JSON.stringify(info));
-  await page.evaluate(() => window.__paiSim.setDrive(1, 0));
-  const t0 = Date.now();
-  for (let i = 0; i < 16; i++) {
-    const s = await page.evaluate(() => ({ t: window.__paiSim.time(), x: window.__paiSim.bodyPos("rover")[0], ...window.__paiSim.stats() }));
-    console.log("DIAG", Date.now() - t0, JSON.stringify(s));
-    await page.waitForTimeout(250);
+  const readyAt = await page.evaluate(() => Math.round(performance.now()));
+  if (drive) await page.evaluate(() => window.__paiSim.setDrive(1, 0));
+  const sims: string[] = [];
+  for (let i = 0; i < 12; i++) {
+    sims.push(await page.evaluate(() => `${Math.round(performance.now())}:${window.__paiSim.time().toFixed(2)}`));
+    await page.waitForTimeout(400);
   }
-  const gaps = await page.evaluate(() => new Promise<number[]>((done) => { const t0 = performance.now(); let last = t0; const g: number[] = []; const f = (n: number) => { g.push(Math.round(n - last)); last = n; if (n - t0 < 2000) requestAnimationFrame(f); else done(g); }; requestAnimationFrame(f); }));
-  console.log("DIAG gaps", gaps.join(","));
-});
+  const r = await page.evaluate(() => {
+    const w = window as unknown as { __long: number[][]; __frames: number[] };
+    const fr = w.__frames; const gaps: string[] = [];
+    for (let i = 1; i < fr.length; i++) if (fr[i]! - fr[i - 1]! > 300) gaps.push(`${fr[i - 1]}+${fr[i]! - fr[i - 1]!}`);
+    return { long: w.__long.filter(([, d]) => d! > 200).map(([s, d]) => `${s}+${d}`).join(" "), gaps: gaps.join(" "), wasm: performance.getEntriesByType("resource").filter((e) => /wasm|js$/.test(e.name)).map((e) => `${e.name.split("/").pop()}@${Math.round(e.startTime)}-${Math.round((e as PerformanceResourceTiming).responseEnd)}`).join(" ") };
+  });
+  console.log(`DIAG ${label} ready@${readyAt}\n  long: ${r.long}\n  frameGaps: ${r.gaps}\n  sim(now:t): ${sims.join(" ")}\n  res: ${r.wasm}`);
+}
+
+test("diag A: idle after load", async ({ page }) => probe(page, "idle", false));
+test("diag B: driving after load", async ({ page }) => probe(page, "drive", true));
+test("diag C: idle again", async ({ page }) => probe(page, "idle2", false));
