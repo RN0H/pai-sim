@@ -257,6 +257,8 @@ async function main(): Promise<void> {
     window.addEventListener("keydown", (e) => {
       // Escape closes a panel, unless it's closing a control's own popup.
       if (e.key !== "Escape" || e.defaultPrevented || e.target instanceof HTMLSelectElement) return;
+      // In the blocks, Escape belongs to Blockly (closing menus, leaving move mode).
+      if (e.target instanceof Element && e.target.closest(".c-blocks, .blocklyWidgetDiv, .blocklyDropDownDiv")) return;
       if (builderOpen) {
         e.preventDefault();
         setBuilderOpen(false);
