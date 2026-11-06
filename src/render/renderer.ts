@@ -201,6 +201,8 @@ export class SceneRenderer {
    * Physics is unaffected; only visuals change.
    */
   setLowQuality(low: boolean): void {
+    // Changing quality recompiles every material: don't do it for nothing.
+    if (low === this.lowQuality) return;
     this.lowQuality = low;
     this.renderer.shadowMap.enabled = !low;
     this.renderer.setPixelRatio(low ? 1 : Math.min(window.devicePixelRatio, 2));

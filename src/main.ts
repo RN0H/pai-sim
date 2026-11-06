@@ -424,7 +424,7 @@ async function main(): Promise<void> {
     else if (params.get("quality") !== "high") {
       if (isSoftwareRenderer(view.glRendererName)) view.setLowQuality(true);
       setTimeout(() => {
-        if (loop.stats.fps > 0 && loop.stats.fps < 24) view.setLowQuality(true);
+        if (!view.isLowQuality && loop.stats.fps > 0 && loop.stats.fps < 24) view.setLowQuality(true);
       }, 2500);
     }
 
