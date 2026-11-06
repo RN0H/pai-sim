@@ -63,7 +63,7 @@ Goal: make the robot do things by itself.
 - [x] User JavaScript runs in a Web Worker with a tiny API: `robot.setWheels(left, right)`, `robot.read(sensorName)`, `robot.time`; called each control tick (50 Hz)
 - [x] Code editor panel with 3 example programs (drive in a square, avoid obstacles, follow a line)
 - [x] Safety: an infinite loop or exception never freezes the page; worker is restarted and the error shown with a line number
-- [ ] Blocks editor (Blockly) that generates the same JS; switch between blocks and code view
+- [x] Blocks editor (Blockly) that generates the same JS; switch between blocks and code view
 - [ ] Python is a stretch goal (Pyodide, lazy-loaded) — only if it keeps the perf budget
 - **Acceptance:** unit tests for the controller API against the compiled template; e2e runs each example program and asserts its effect (square returns near start; avoider doesn't hit a wall in 10 s); e2e with `while(true){}` shows an error and the page stays responsive.
 
@@ -155,3 +155,25 @@ _(Agents: add dated notes here when stopping partway through a milestone.)_
     the environments.
   - The worker is a classic (not module) worker so Firefox < 114 works; it
     bundles acorn (~120 KB, loaded only on first Run) to find syntax error lines.
+- 2026-11-06 (M4, part 2): Blockly editor done. Left in M4: only the
+  optional Python stretch goal (owner to decide whether it blocks M5).
+  Notes:
+  - Blocks view = `src/ui/blocksEditor.ts` (DOM, lazily `import()`ed on the
+    first switch to Blocks, ~220 KB gzip) + `src/control/blocks.ts` (block
+    definitions, toolbox, block versions of the examples, and
+    `blocksToCode()` / `workspaceToProgram()`, headless, unit-tested in
+    Node). Nothing else may import either eagerly (a unit test checks).
+  - Blocks generate into the same textarea: "when the program starts" →
+    top-level code, "every tick" → `function loop()`. Blocks outside those
+    hats are greyed out and don't run. Code can't be turned back into
+    blocks: switching back after editing the code asks first. M6 should
+    share the blocks workspace JSON (`BlocksEditor.save()`) when the Blocks
+    view is in use, not only the generated code.
+  - Blockly's images/cursors are served from `public/blockly-media/` (no
+    CDN requests; an e2e test checks).
+  - `SimLoop` now skips drawing while a program holds physics and is more
+    than 50 ms behind (drawing at least every 250 ms): on software-rendered
+    Chrome (~150 ms per frame) each worker round trip waited a whole frame,
+    so programs ran at ~20% real time. The "running program keeps real time"
+    e2e failed on `main` in this environment before the fix.
+
