@@ -12,6 +12,20 @@ const MAX_FRAME_SECONDS = 0.25;
 // (e.g. 0.0001 s) would otherwise need thousands of steps per frame and could
 // lock the tab on a slow device; past the cap it simply runs slower than real time.
 export const MAX_STEPS_PER_FRAME = 1000;
+// While a controller program holds physics (lockstep, see src/control/), each
+// control tick needs a message round trip to its worker, and a message can
+// only be handled between frames. On a device that spends a whole frame
+// rendering (software GL: ~150 ms), that's one tick per frame, i.e. ~20% of
+// real time. So when physics is held and has fallen behind, skip drawing for
+// a while to leave the main thread free for the round trips. Only when
+// drawing is what's slow, though: if the program itself is slow (the worker
+// is the bottleneck), skipping frames wouldn't help.
+/** Backlog (s) past which a held frame skips drawing. Fast devices never get this far behind. */
+export const BEHIND_SECONDS = 0.05;
+/** But draw at least this often (ms), so the view never freezes. */
+export const MAX_RENDER_GAP_MS = 250;
+/** If the frame after a drawn one comes later than this (ms), drawing is slow. */
+export const SLOW_RENDER_MS = 50;
 
 export interface LoopStats {
   fps: number;
@@ -28,6 +42,15 @@ export class SimLoop {
   private frames = 0;
   private simTimeWindow = 0;
   private windowStart = 0;
+  private lastRender = -Infinity;
+  /**
+   * How long the last drawn frame took (ms): the time to the next animation
+   * frame, since much of the cost (e.g. software GL) lands after our callback.
+   */
+  private renderMs = 0;
+  private drewLast = false;
+  /** The last run() stopped because beforeStep held physics. */
+  private held = false;
 
   /**
    * @param beforeStep called before every physics step. Returning `false`
@@ -56,8 +79,16 @@ export class SimLoop {
         this.accum = Math.min(this.accum + dt, MAX_FRAME_SECONDS);
         this.run();
       }
-      this.onFrame(this.sim);
-      this.frames++;
+      if (this.drewLast) this.renderMs = now - this.lastRender;
+      const behind = !this.paused && this.held && this.accum > BEHIND_SECONDS && this.renderMs > SLOW_RENDER_MS;
+      if (!behind || now - this.lastRender >= MAX_RENDER_GAP_MS) {
+        this.onFrame(this.sim);
+        this.drewLast = true;
+        this.lastRender = now;
+        this.frames++; // fps counts frames drawn
+      } else {
+        this.drewLast = false;
+      }
       const elapsed = (now - this.windowStart) / 1000;
       if (elapsed >= 0.5) {
         this.stats.fps = this.frames / elapsed;
@@ -79,8 +110,12 @@ export class SimLoop {
   private run(): void {
     const h = this.sim.timestep;
     let steps = 0;
+    this.held = false;
     while (this.accum >= h && steps < MAX_STEPS_PER_FRAME) {
-      if (this.beforeStep(this.sim) === false) return; // held: keep the backlog
+      if (this.beforeStep(this.sim) === false) {
+        this.held = true;
+        return; // held: keep the backlog
+      }
       this.sim.step();
       this.accum -= h;
       this.simTimeWindow += h;

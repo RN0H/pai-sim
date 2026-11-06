@@ -531,6 +531,56 @@ button:focus-visible {
   overflow-wrap: anywhere;
 }
 
+.c-views {
+  display: flex;
+  gap: 0;
+}
+
+.c-view {
+  flex: 1;
+  border-radius: 0;
+}
+
+.c-view:first-child {
+  border-radius: 8px 0 0 8px;
+}
+
+.c-view:last-child {
+  border-radius: 0 8px 8px 0;
+  margin-left: -1px;
+}
+
+.c-view[aria-pressed="true"] {
+  position: relative;
+  border-color: var(--accent);
+  background: #fff6f1;
+  font-weight: 600;
+}
+
+.c-view[aria-busy="true"] {
+  cursor: progress;
+}
+
+.c-blocks {
+  position: relative;
+  width: 100%;
+  height: 380px;
+  flex: 1 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.c-blocks:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.code-body > [hidden] {
+  /* Beats `.builder label[for] { display: block }`: hidden always hides. */
+  display: none !important;
+}
+
 #code-toggle[aria-expanded="true"] {
   border-color: var(--accent);
   background: #fff6f1;
@@ -695,6 +745,9 @@ button:focus-visible {
   .c-editor {
     min-height: 160px;
     font-size: 16px;
+  }
+  .c-blocks {
+    height: 300px;
   }
   .b-name input {
     font-size: 16px;

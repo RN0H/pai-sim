@@ -9,6 +9,7 @@ import type { RobotSpec } from "./robot/spec";
 import { BuilderPanel } from "./ui/builder";
 import { buildScene } from "./ui/builderModel";
 import { CodePanel } from "./ui/codePanel";
+import { isSoftwareRenderer } from "./render/software";
 import type { Controller } from "./control/controller";
 import { formatProgramError } from "./control/api";
 import { startInWorker } from "./control/host";
@@ -257,6 +258,8 @@ async function main(): Promise<void> {
     window.addEventListener("keydown", (e) => {
       // Escape closes a panel, unless it's closing a control's own popup.
       if (e.key !== "Escape" || e.defaultPrevented || e.target instanceof HTMLSelectElement) return;
+      // In Blockly's menus and field editors, Escape closes them, not the panel.
+      if (e.target instanceof Element && e.target.closest(".blocklyWidgetDiv, .blocklyDropDownDiv")) return;
       if (builderOpen) {
         e.preventDefault();
         setBuilderOpen(false);
@@ -273,6 +276,7 @@ async function main(): Promise<void> {
     function setCodeOpen(open: boolean, moveFocus = true): void {
       if (open && builderOpen) setBuilderOpen(false);
       codeOpen = open;
+      if (!open) code.hidePopups();
       codePanelEl.hidden = !open;
       codeToggle.setAttribute("aria-expanded", String(open));
       document.body.classList.toggle("coding", open);
@@ -414,10 +418,13 @@ async function main(): Promise<void> {
 
     // Adaptive quality: if the device can't hold ~24 fps, drop to the cheap
     // renderer. Accessibility on low-end hardware is a core goal.
+    // Software-rendered WebGL (no GPU) is always slow: start in lite mode, so
+    // the first seconds run in real time too.
     if (params.get("quality") === "low") view.setLowQuality(true);
     else if (params.get("quality") !== "high") {
+      if (isSoftwareRenderer(view.glRendererName)) view.setLowQuality(true);
       setTimeout(() => {
-        if (loop.stats.fps > 0 && loop.stats.fps < 24) view.setLowQuality(true);
+        if (!view.isLowQuality && loop.stats.fps > 0 && loop.stats.fps < 24) view.setLowQuality(true);
       }, 2500);
     }
 
