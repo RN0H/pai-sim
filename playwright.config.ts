@@ -7,8 +7,14 @@ export default defineConfig({
   testDir: "tests/e2e",
   timeout: 60_000,
   retries: process.env.CI ? 1 : 0,
+  // Real-time checks need the CPU to themselves: two software-rendered
+  // browsers at once on a CI runner each fall below real time.
+  workers: process.env.CI ? 1 : undefined,
   outputDir: "test-results",
   use: {
+    // Full Chromium (new headless), not Playwright's headless shell: in CI the
+    // shell froze drawing for ~3.6 s about a second after every page load.
+    ...(executablePath ? {} : { channel: "chromium" }),
     baseURL: "http://localhost:4173/pai-sim/",
     viewport: { width: 1280, height: 800 },
     launchOptions: {

@@ -16,6 +16,7 @@
   "dependencies": {
     "@mujoco/mujoco": "^3.17.0",
     "acorn": "^8.19.0",
+    "blockly": "^13.4.0",
     "three": "^0.187.0"
   },
   "devDependencies": {
