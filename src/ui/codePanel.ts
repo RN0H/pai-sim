@@ -10,8 +10,12 @@
  * The Blocks view (Blockly) is loaded only when someone first opens it. The
  * blocks generate a program into the same textarea, so the Code view always
  * shows the code the blocks make, and Run always runs the textarea.
+ *
+ * The Code view can be JavaScript or Python (a "Language" menu). Each
+ * language keeps its own code while the other is showing. Blocks make
+ * JavaScript, so opening the Blocks view switches the code back to it.
  */
-import { formatProgramError, type ProgramError } from "../control/api";
+import { formatProgramError, type Language, type ProgramError } from "../control/api";
 import { EXAMPLES, findExample } from "../control/examples";
 import type { BlocksEditor } from "./blocksEditor";
 
@@ -19,7 +23,9 @@ export type EditorView = "code" | "blocks";
 
 export interface CodePanelOptions {
   initialCode: string;
-  onRun(code: string): void;
+  /** What the editor shows on first switching to Python. */
+  initialPython: string;
+  onRun(code: string, language: Language): void;
   onStop(): void;
 }
 
@@ -66,6 +72,11 @@ export class CodePanel {
   private loadedExample: string | null = null;
   /** Bumped by every setView(), so a switch waiting for Blockly to load can tell it's stale. */
   private viewRequest = 0;
+  private language: Language = "javascript";
+  private readonly languageSelect: HTMLSelectElement;
+  private readonly help: HTMLElement;
+  /** The editor's state for the language that isn't showing. */
+  private stashed: { value: string; edited: boolean; loadedExample: string | null };
 
   constructor(
     root: HTMLElement,
@@ -86,11 +97,13 @@ export class CodePanel {
         this.setStatus(`Loaded the "${ex.name}" example as blocks. Press Run to try it.`);
         return;
       }
-      if (this.edited && this.editor.value.trim() && this.editor.value !== ex.code && !this.confirmReplace("code")) return;
-      this.editor.value = ex.code;
+      const exCode = this.language === "python" ? ex.python : ex.code;
+      if (this.edited && this.editor.value.trim() && this.editor.value !== exCode && !this.confirmReplace("code")) return;
+      this.editor.value = exCode;
       this.edited = false;
-      this.loadedExample = ex.id;
-      this.setStatus(`Loaded the "${ex.name}" example. Press Run to try it.`);
+      // Only JavaScript examples come along to the Blocks view.
+      this.loadedExample = this.language === "javascript" ? ex.id : null;
+      this.setStatus(`Loaded the "${ex.name}" example${this.language === "python" ? " in Python" : ""}. Press Run to try it.`);
     });
     const exampleRow = el(
       "div",
@@ -132,6 +145,15 @@ export class CodePanel {
       " don't run (they turn grey). Press Code to see the program they make.",
     );
 
+    // ---- Language (Code view) ---------------------------------------------------
+    const languageId = "code-language";
+    this.languageSelect = el("select", { id: languageId });
+    this.languageSelect.add(new Option("JavaScript", "javascript"));
+    this.languageSelect.add(new Option("Python", "python"));
+    this.languageSelect.addEventListener("change", () => this.setLanguage(this.languageSelect.value === "python" ? "python" : "javascript"));
+    const languageRow = el("div", { className: "c-row" }, el("label", { htmlFor: languageId }, "Language"), this.languageSelect);
+    this.stashed = { value: opts.initialPython, edited: false, loadedExample: null };
+
     // ---- Editor ------------------------------------------------------------
     const editorId = "code-editor";
     const helpId = "code-help";
@@ -158,19 +180,8 @@ export class CodePanel {
         this.runBtn.click();
       }
     });
-    const help = el(
-      "p",
-      { id: helpId, className: "b-detail c-help" },
-      "Use ",
-      el("code", {}, "robot.setWheels(left, right)"),
-      " (−1 to 1), ",
-      el("code", {}, 'robot.read("distance")'),
-      " and ",
-      el("code", {}, "robot.time"),
-      ". Code in ",
-      el("code", {}, "function loop()"),
-      " runs 50 times a second. Ctrl+Enter runs.",
-    );
+    const help = (this.help = el("p", { id: helpId, className: "b-detail c-help" }));
+    this.showHelp();
 
     // ---- Run / stop ----------------------------------------------------------
     this.runBtn = el("button", { type: "button", className: "c-run" }, "Run");
@@ -178,7 +189,7 @@ export class CodePanel {
     this.runBtn.addEventListener("click", () => {
       // Blockly reports changes a moment later; take the blocks' latest code now.
       if (this.view === "blocks" && this.blocks) this.fromBlocks(this.blocks.code());
-      opts.onRun(this.editor.value);
+      opts.onRun(this.editor.value, this.view === "blocks" ? "javascript" : this.language);
     });
     this.stopBtn.addEventListener("click", () => opts.onStop());
     this.status = el("p", { className: "c-status", role: "status" });
@@ -202,13 +213,14 @@ export class CodePanel {
     this.output.hidden = true;
 
     const editorLabel = el("label", { htmlFor: editorId, className: "c-label" }, "Program");
-    this.codeParts = [editorLabel, this.editor, help];
+    this.codeParts = [languageRow, editorLabel, this.editor, help];
     this.blocksParts = [this.blocksBox, blocksHelp];
     for (const p of this.blocksParts) p.hidden = true;
 
     root.append(
       exampleRow,
       viewSwitch,
+      languageRow,
       editorLabel,
       this.editor,
       help,
@@ -268,6 +280,44 @@ export class CodePanel {
     this.status.textContent = text;
   }
 
+  /** The Code view's language. */
+  get currentLanguage(): Language {
+    return this.language;
+  }
+
+  /** Switch the Code view's language; each language keeps its own code. */
+  setLanguage(language: Language): void {
+    this.languageSelect.value = language;
+    if (language === this.language) return;
+    const showing = { value: this.editor.value, edited: this.edited, loadedExample: this.loadedExample };
+    this.editor.value = this.stashed.value;
+    this.edited = this.stashed.edited;
+    this.loadedExample = this.stashed.loadedExample;
+    this.stashed = showing;
+    this.language = language;
+    this.showHelp();
+    this.setStatus(
+      language === "python"
+        ? "Python. The first run downloads Python (about 12 MB), so it takes a while to start."
+        : "JavaScript.",
+    );
+  }
+
+  private showHelp(): void {
+    const py = this.language === "python";
+    this.help.replaceChildren(
+      "Use ",
+      el("code", {}, py ? "robot.set_wheels(left, right)" : "robot.setWheels(left, right)"),
+      " (−1 to 1), ",
+      el("code", {}, 'robot.read("distance")'),
+      " and ",
+      el("code", {}, "robot.time"),
+      ". Code in ",
+      el("code", {}, py ? "def loop():" : "function loop()"),
+      " runs 50 times a second. Ctrl+Enter runs.",
+    );
+  }
+
   /** Which editor is showing. */
   get currentView(): EditorView {
     return this.view;
@@ -290,6 +340,8 @@ export class CodePanel {
       return;
     }
     if (this.view === "blocks") return;
+    // Blocks make JavaScript.
+    if (this.language !== "javascript") this.setLanguage("javascript");
     const example = this.loadedExample !== null && this.editor.value === findExample(this.loadedExample)?.code ? findExample(this.loadedExample)! : null;
     const edits = this.edited && this.editor.value.trim() !== "" && this.editor.value !== this.blocksCode;
     if (edits && !window.confirm("Switch to blocks? Blocks can't be made from code, so your code changes will be replaced by the blocks' program.")) {

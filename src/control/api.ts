@@ -11,6 +11,9 @@
  * `function loop() {}`, that is called on every control tick (50 times a second).
  */
 
+/** Languages a program can be written in (the Blocks view makes JavaScript). */
+export type Language = "javascript" | "python";
+
 /** Control ticks per simulated second. */
 export const CONTROL_HZ = 50;
 

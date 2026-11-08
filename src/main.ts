@@ -11,7 +11,7 @@ import { buildScene } from "./ui/builderModel";
 import { CodePanel } from "./ui/codePanel";
 import { isSoftwareRenderer } from "./render/software";
 import type { Controller } from "./control/controller";
-import { formatProgramError } from "./control/api";
+import { formatProgramError, type Language } from "./control/api";
 import { startInWorker } from "./control/host";
 import "./style.css";
 
@@ -48,7 +48,16 @@ export interface TestHooks {
   /** Camera position in render coordinates. */
   cameraPos(): [number, number, number];
   /** The controller program: "none" (never run or stopped), "running" or "failed", its last error and wheel command. */
-  program(): { state: "none" | "running" | "failed"; error: string | null; wheels: { left: number; right: number }; time: number };
+  program(): {
+    state: "none" | "running" | "failed";
+    error: string | null;
+    wheels: { left: number; right: number };
+    time: number;
+    /** The running program's language, or null. */
+    language: Language | null;
+    /** False while a Python program waits for Python to load. */
+    loaded: boolean;
+  };
 }
 
 declare global {
@@ -80,7 +89,7 @@ async function main(): Promise<void> {
     drawnGeoms: () => 0,
     builderSpec: () => templateSpec("hauler"),
     cameraPos: () => [0, 0, 0],
-    program: () => ({ state: "none", error: null, wheels: { left: 0, right: 0 }, time: 0 }),
+    program: () => ({ state: "none", error: null, wheels: { left: 0, right: 0 }, time: 0, language: null, loaded: false }),
   });
 
   const status = $("#status");
@@ -290,6 +299,9 @@ async function main(): Promise<void> {
 
     /** The code of the program last started, for restarting it on Reset. */
     let programCode: string | null = null;
+    let programLanguage: Language = "javascript";
+    /** The running program's language has loaded (Python takes a while the first time). */
+    let programLoaded = false;
 
     const stopProgram = (message: string) => {
       program?.stop();
@@ -299,7 +311,7 @@ async function main(): Promise<void> {
       syncUi();
     };
 
-    const startProgram = (text: string) => {
+    const startProgram = (text: string, language: Language) => {
       program?.stop();
       program = null;
       programFailure = null;
@@ -310,6 +322,8 @@ async function main(): Promise<void> {
       cur.sim.reset();
       override = null;
       programCode = text;
+      programLanguage = language;
+      programLoaded = language === "javascript";
       const sim = cur.sim;
       const ctl: Controller = startInWorker(
         sim,
@@ -327,14 +341,25 @@ async function main(): Promise<void> {
           },
         },
         () => loop.pump(),
+        language,
+        () => {
+          // Python has loaded (called later, never during startInWorker).
+          if (program !== ctl) return;
+          programLoaded = true;
+          code.setRunning(true, `Running on ${sim.modelName || "the robot"}.`);
+        },
       );
       program = ctl;
-      code.setRunning(true, `Running on ${sim.modelName || "the robot"}.`);
+      code.setRunning(
+        true,
+        programLoaded ? `Running on ${sim.modelName || "the robot"}.` : "Loading Python… The first run downloads about 12 MB, so it can take a while.",
+      );
       syncUi();
     };
 
     const code = new CodePanel($("#code-body"), {
       initialCode: STARTER_CODE,
+      initialPython: STARTER_PYTHON,
       onRun: startProgram,
       onStop: () => stopProgram("Stopped."),
     });
@@ -437,7 +462,7 @@ async function main(): Promise<void> {
 
     // Reset restarts a running program too, so it starts from the beginning.
     const resetAll = () => {
-      if (program && programCode !== null) startProgram(programCode);
+      if (program && programCode !== null) startProgram(programCode, programLanguage);
       else cur.sim.reset();
     };
     $("#reset").addEventListener("click", resetAll);
@@ -471,6 +496,8 @@ async function main(): Promise<void> {
         error: programFailure,
         wheels: program?.wheels ?? { left: 0, right: 0 },
         time: program?.time ?? 0,
+        language: program ? programLanguage : null,
+        loaded: !!program && programLoaded,
       }),
     } satisfies Partial<TestHooks>);
     hooks.ready = true;
@@ -491,6 +518,14 @@ const STARTER_CODE = `// Your robot's program. Pick an example above, or write y
 function loop() {
   robot.setWheels(0.5, 0.5); // both wheels half speed forward
 }
+`;
+
+/** What the code editor starts with in Python. */
+const STARTER_PYTHON = `# Your robot's program in Python. Pick an example above, or write your own.
+# Top-level code runs once; loop() runs 50 times a second.
+
+def loop():
+    robot.set_wheels(0.5, 0.5)  # both wheels half speed forward
 `;
 
 function makeCurrent(sim: Sim, sceneId: string): Current {

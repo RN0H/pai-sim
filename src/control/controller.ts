@@ -11,7 +11,7 @@
  */
 import { DEFAULT_DRIVE_SPEED, MAX_DRIVE_SPEED } from "../app/drive";
 import type { Sim } from "../physics/engine";
-import { CONTROL_HZ, parseReply, type ProgramError, type TickMessage } from "./api";
+import { CONTROL_HZ, parseReply, type ProgramError, type Reply, type TickMessage } from "./api";
 import { ProgramRunner } from "./program";
 
 /** Where ticks go. The brain answers each one by calling `controller.receive()`, possibly right away. */
@@ -187,8 +187,10 @@ export class Controller {
 
 /** A brain that runs the program in this thread. For tests and tools only: a stuck program blocks. */
 export class InlineBrain implements Brain {
-  private readonly runner = new ProgramRunner();
   controller: Controller | null = null;
+
+  /** @param runner runs the ticks: JavaScript by default, or a PythonRunner (src/control/python.ts). */
+  constructor(private readonly runner: { handle(msg: TickMessage): Reply } = new ProgramRunner()) {}
 
   send(msg: TickMessage): void {
     this.controller?.receive(this.runner.handle(msg));
@@ -201,8 +203,13 @@ export class InlineBrain implements Brain {
  * Run `code` on `sim` for `seconds` of simulated time, in this thread.
  * Returns the controller (state, error, wheels) and the logs. For tests.
  */
-export function runInline(sim: Sim, code: string, seconds: number): { controller: Controller; logs: string[] } {
-  const brain = new InlineBrain();
+export function runInline(
+  sim: Sim,
+  code: string,
+  seconds: number,
+  runner?: { handle(msg: TickMessage): Reply },
+): { controller: Controller; logs: string[] } {
+  const brain = new InlineBrain(runner);
   const logs: string[] = [];
   const controller = new Controller(sim, code, brain, { onLogs: (l) => logs.push(...l) });
   brain.controller = controller;

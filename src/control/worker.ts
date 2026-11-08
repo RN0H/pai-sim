@@ -11,6 +11,7 @@
 import type { TickMessage } from "./api";
 import { ProgramRunner } from "./program";
 import { locateSyntaxError } from "./syntax";
+import { blockWorkerApis } from "./workerSafety";
 
 interface WorkerScope {
   onmessage: ((e: MessageEvent<TickMessage>) => void) | null;
@@ -25,37 +26,4 @@ scope.onmessage = (e) => {
   post(runner.handle(e.data));
 };
 
-const BLOCKED = [
-  "postMessage",
-  "fetch",
-  "XMLHttpRequest",
-  "WebSocket",
-  "EventSource",
-  "importScripts",
-  "Worker",
-  "SharedWorker",
-  "BroadcastChannel",
-  "indexedDB",
-  "caches",
-  "WebTransport",
-  "RTCPeerConnection",
-];
-// Shadow each one on the global and on its prototypes (so
-// `Object.getPrototypeOf(self).postMessage` is gone too).
-for (let obj: object | null = scope; obj && obj !== Object.prototype; obj = Object.getPrototypeOf(obj)) {
-  for (const name of BLOCKED) {
-    if (obj !== scope && !Object.prototype.hasOwnProperty.call(obj, name)) continue;
-    try {
-      Object.defineProperty(obj, name, { value: undefined, writable: false, configurable: false });
-    } catch {
-      // Locked by the browser: leave it (the page checks every reply anyway).
-    }
-  }
-}
-// Keep the handler: a program assigning `onmessage` can't take over ticks.
-try {
-  const handler = scope.onmessage;
-  Object.defineProperty(scope, "onmessage", { value: handler, writable: false, configurable: false });
-} catch {
-  // Older engines: the handler stays assignable; the page still checks every reply.
-}
+blockWorkerApis(scope);
