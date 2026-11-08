@@ -56,7 +56,7 @@ Goal: a beginner builds a rover without touching code or files.
 - [x] Fully keyboard-accessible and labeled for screen readers
 - **Acceptance:** e2e builds a rover from scratch through the UI only (clicks, no test hooks for building), drives it forward, and asserts it moved; same flow passes on a 390×844 touch viewport; screenshot of the panel on desktop and phone.
 
-## M4 — Controller sandbox
+## M4 — Controller sandbox ✅
 
 Goal: make the robot do things by itself.
 
@@ -64,7 +64,7 @@ Goal: make the robot do things by itself.
 - [x] Code editor panel with 3 example programs (drive in a square, avoid obstacles, follow a line)
 - [x] Safety: an infinite loop or exception never freezes the page; worker is restarted and the error shown with a line number
 - [x] Blocks editor (Blockly) that generates the same JS; switch between blocks and code view
-- [ ] Python is a stretch goal (Pyodide, lazy-loaded) — only if it keeps the perf budget
+- [x] Python is a stretch goal (Pyodide, lazy-loaded) — only if it keeps the perf budget
 - **Acceptance:** unit tests for the controller API against the compiled template; e2e runs each example program and asserts its effect (square returns near start; avoider doesn't hit a wall in 10 s); e2e with `while(true){}` shows an error and the page stays responsive.
 
 ## M5 — Environments
@@ -179,4 +179,26 @@ _(Agents: add dated notes here when stopping partway through a milestone.)_
     Chrome (~150 ms per frame) each worker round trip waited a whole frame,
     so programs ran at ~20% real time. The "running program keeps real time"
     e2e failed on `main` in this environment before the fix.
+- 2026-11-08 (M4, part 3): Python done; M4 is complete. Notes:
+  - Code view has a "Language" menu (JavaScript / Python); each language
+    keeps its own code while the other shows; Blocks always make JavaScript
+    (opening Blocks switches the menu back). M6 should share the language
+    with the code.
+  - Python API: `robot.set_wheels(l, r)` (`setWheels` also works),
+    `robot.read(name)`, `robot.time`, `print()`; `def loop():` runs every
+    tick. `src/control/python.ts` is the runner (pure; unit-tested on real
+    Pyodide in Node); the Python versions of the examples drive exactly the
+    same trajectory as the JavaScript ones (a unit test checks qpos equality).
+  - Pyodide (pinned exact version in package.json, ~12 MB, ~6 MB gzipped)
+    is served from our own site under `/pai-sim/pyodide/` by a small Vite
+    plugin in `vite.config.ts` (copied from node_modules at build). Nothing
+    downloads until a Python program runs; physics waits at the first tick
+    while it loads (status "Loading Python…"), with a 120 s load timeout.
+  - `src/control/pyWorker.ts` is a *module* worker (Pyodide's loader
+    rejects classic workers), and Pyodide itself needs a recent browser
+    (Firefox 114+ for module workers; only Chrome is tested here); older ones get a friendly "Python couldn't start" error and
+    JavaScript/Blocks still work. Network/messaging APIs are blocked after
+    Pyodide loads, before user code runs (`src/control/workerSafety.ts`,
+    shared with the JS worker). Each run uses a fresh worker, so Reset
+    re-initialises Python (a few seconds; files come from the HTTP cache).
 

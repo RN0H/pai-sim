@@ -5,12 +5,20 @@
  * and the program stopped with an error; pressing Run again starts a fresh
  * worker. Browser only.
  */
-import { TICK_TIMEOUT_MS, type TickMessage } from "./api";
+import { TICK_TIMEOUT_MS, type Language, type TickMessage } from "./api";
 import { Controller, type ControllerEvents } from "./controller";
 import type { Sim } from "../physics/engine";
 // Vite bundles this as a classic worker in the build (module workers need
 // Firefox 114+) and serves it as a module worker in `npm run dev`.
 import ProgramWorker from "./worker?worker";
+// The Python worker script is small; Pyodide itself (~12 MB) is fetched by it, from our own site, on first use.
+// It's a module worker because Pyodide's loader only works in those.
+import pythonWorkerUrl from "./pyWorker?worker&url";
+import type { LoadReply } from "./pyWorker";
+
+/** How long loading Python may take (a ~12 MB download the first time, on a slow phone). */
+export const PYTHON_LOAD_TIMEOUT_MS = 120_000;
+export const PYTHON_LOAD_TIMEOUT_MESSAGE = `Python didn't load within ${PYTHON_LOAD_TIMEOUT_MS / 1000} seconds. Check your internet connection and press Run again.`;
 
 /** The first tick also loads the worker's script (slow on old phones) and runs the top-level code. */
 export const FIRST_TICK_TIMEOUT_MS = 5 * TICK_TIMEOUT_MS;
@@ -25,11 +33,19 @@ class WorkerBrain {
   private timer = 0;
   /** seq of the tick waiting for an answer, or 0. */
   private pending = 0;
+  /** Python only: the worker is still loading Pyodide; ticks wait in `queued`. */
+  private loading: boolean;
+  private queued: TickMessage | null = null;
   controller: Controller | null = null;
 
-  constructor() {
-    this.worker = new ProgramWorker();
+  constructor(language: Language, onReady: () => void) {
+    this.loading = language === "python";
+    this.worker = language === "python" ? new Worker(pythonWorkerUrl, { type: "module" }) : new ProgramWorker();
     this.worker.onmessage = (e: MessageEvent<unknown>) => {
+      if (this.loading) {
+        this.loaded(e.data as LoadReply, onReady);
+        return;
+      }
       // Only the answer to the pending tick counts (the controller checks
       // the rest), so a program can't silence the watchdog by posting itself.
       const seq = (e.data as { seq?: unknown } | null)?.seq;
@@ -41,6 +57,7 @@ class WorkerBrain {
     this.worker.onerror = (e) => {
       e.preventDefault();
       this.pending = 0;
+      this.loading = false;
       clearTimeout(this.timer);
       this.controller?.timeout(`The program's worker crashed: ${e.message || "unknown error"}.`);
     };
@@ -48,6 +65,10 @@ class WorkerBrain {
 
   send(msg: TickMessage): void {
     if (!this.worker) return;
+    if (this.loading) {
+      this.queued = msg; // sent once Python is ready; physics waits meanwhile
+      return;
+    }
     clearTimeout(this.timer);
     this.pending = msg.seq;
     const first = msg.code !== undefined;
@@ -64,7 +85,36 @@ class WorkerBrain {
     this.worker.postMessage(msg);
   }
 
+  /** Python: start loading Pyodide; the load has its own (long) timeout. */
+  init(): void {
+    if (!this.worker || !this.loading) return;
+    this.timer = window.setTimeout(() => {
+      if (!this.loading) return;
+      this.loading = false;
+      this.controller?.timeout(PYTHON_LOAD_TIMEOUT_MESSAGE);
+    }, PYTHON_LOAD_TIMEOUT_MS);
+    const indexURL = new URL(`${import.meta.env.BASE_URL}pyodide/`, location.href).href;
+    this.worker.postMessage({ type: "init", indexURL });
+  }
+
+  private loaded(reply: LoadReply, onReady: () => void): void {
+    if (reply?.type !== "ready" && reply?.type !== "loadError") return;
+    this.loading = false;
+    clearTimeout(this.timer);
+    if (reply.type === "loadError") {
+      const why = typeof reply.message === "string" ? reply.message.slice(0, 300) : "unknown error";
+      this.controller?.timeout(`Python couldn't start in this browser (${why}). Try JavaScript or Blocks instead, or a newer browser.`);
+      return;
+    }
+    onReady();
+    const msg = this.queued;
+    this.queued = null;
+    if (msg) this.send(msg);
+  }
+
   dispose(): void {
+    this.loading = false;
+    this.queued = null;
     clearTimeout(this.timer);
     this.pending = 0;
     this.worker?.terminate();
@@ -72,10 +122,22 @@ class WorkerBrain {
   }
 }
 
-/** Start `code` on `sim` in a fresh worker. */
-export function startInWorker(sim: Sim, code: string, events: ControllerEvents, onResume: () => void): Controller {
-  const brain = new WorkerBrain();
+/**
+ * Start `code` on `sim` in a fresh worker. Python first loads Pyodide
+ * (physics waits at the first tick meanwhile); `onReady` fires, later,
+ * once it has loaded. (JavaScript is ready at once: `onReady` isn't called.)
+ */
+export function startInWorker(
+  sim: Sim,
+  code: string,
+  events: ControllerEvents,
+  onResume: () => void,
+  language: Language = "javascript",
+  onReady: () => void = () => {},
+): Controller {
+  const brain = new WorkerBrain(language, onReady);
   const controller = new Controller(sim, code, brain, events, onResume);
   brain.controller = controller;
+  brain.init();
   return controller;
 }
