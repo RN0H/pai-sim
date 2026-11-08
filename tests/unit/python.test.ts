@@ -126,6 +126,11 @@ describe("python runner", () => {
     expect(ticker("print('a', end='')\nprint('b', 2, sep='-', end='')")().logs).toEqual(["ab-2"]);
   });
 
+  it("wheel values set behind the API's back can't break the reply", () => {
+    const r = ticker("robot.set_wheels.__globals__['_st']['left'] = float('nan')\nrobot.set_wheels.__globals__['_st']['right'] = 9")();
+    expect(r).toMatchObject({ type: "cmd", left: 0, right: 0 });
+  });
+
   it("each runner starts fresh: nothing leaks from the last program", () => {
     ticker("x = 5\nrobot.set_wheels(1, 1)\ndef loop():\n    pass")();
     const r = ticker("print('x' in globals())")();

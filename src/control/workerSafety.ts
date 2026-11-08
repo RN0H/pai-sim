@@ -20,6 +20,9 @@ const BLOCKED = [
   "caches",
   "WebTransport",
   "RTCPeerConnection",
+  // Fonts load from URLs too.
+  "FontFace",
+  "fonts",
 ];
 
 /** Shadow each blocked API on `scope` and its prototypes, and lock `onmessage` to its current handler. */

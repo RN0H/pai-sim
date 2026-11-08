@@ -157,7 +157,11 @@ def _pai_tick(time, sensors_json, code):
         _log(_st["partial"])
         _st["partial"] = ""
     if result is None:
-        result = {"type": "cmd", "left": _st["left"], "right": _st["right"]}
+        # _st is reachable from user code (via __globals__), so check what goes out.
+        left, right = _st["left"], _st["right"]
+        if not (_is_number(left) and _is_number(right)):
+            left = right = 0.0
+        result = {"type": "cmd", "left": max(-1.0, min(1.0, float(left))), "right": max(-1.0, min(1.0, float(right)))}
     result["logs"] = _st["logs"]
     return _json.dumps(result)
 `;

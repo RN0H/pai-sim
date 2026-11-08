@@ -15,13 +15,13 @@ const LINE_RADIUS = 0.8;
 /** Loading Pyodide in software-rendered CI Chrome takes a few seconds; allow plenty. */
 const LOAD_MS = 60_000;
 
-async function openSim(page: Page, query = "?scene=sensors"): Promise<string[]> {
+async function openSim(page: Page, query = "?scene=sensors", dialogs: "accept" | "dismiss" = "accept"): Promise<string[]> {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
   page.on("console", (m) => {
     if (m.type() === "error") errors.push(`console: ${m.text()}`);
   });
-  page.on("dialog", (d) => void d.accept());
+  page.on("dialog", (d) => void (dialogs === "accept" ? d.accept() : d.dismiss()));
   await page.goto(`./${query}`);
   await page.waitForFunction(() => window.__paiSim?.ready || window.__paiSim?.error, null, { timeout: 30_000 });
   expect(await page.evaluate(() => window.__paiSim.error), "simulator failed to load").toBeNull();
@@ -47,7 +47,9 @@ async function run(page: Page, button: "Run" | "Restart" = "Run") {
 }
 
 async function waitLoaded(page: Page) {
-  await expect.poll(() => program(page).then((p) => p.loaded || p.state), { timeout: LOAD_MS }).toBe(true);
+  const status = () => program(page).then((p) => (p.loaded ? "loaded" : p.state === "running" ? "loading" : `${p.state}: ${p.error}`));
+  await expect.poll(status, { timeout: LOAD_MS }).not.toBe("loading"); // fails fast on an error
+  expect(await status()).toBe("loaded");
 }
 
 async function runExample(page: Page, name: string) {
@@ -178,9 +180,9 @@ test("python can't message the page or use the network", async ({ page }) => {
   test.setTimeout(150_000);
   const errors = await openSim(page);
   await openPython(page);
-  await editor(page).fill("import js\nprint(js.fetch, js.XMLHttpRequest, js.postMessage, js.importScripts, js.WebSocket)\n");
+  await editor(page).fill("import js\nprint(js.fetch, js.XMLHttpRequest, js.postMessage, js.importScripts, js.WebSocket, js.FontFace, js.fonts)\n");
   await run(page);
-  await expect(panel(page).getByLabel("Program output")).toHaveText("None None None None None", { timeout: LOAD_MS });
+  await expect(panel(page).getByLabel("Program output")).toHaveText("None None None None None None None", { timeout: LOAD_MS });
   expect(errors).toEqual([]);
 });
 
@@ -202,6 +204,38 @@ test("each language keeps its own code; Blocks switch back to JavaScript", async
   await panel(page).getByRole("button", { name: "Code", exact: true }).click();
   await expect(panel(page).getByLabel("Language")).toHaveValue("javascript");
   await panel(page).getByLabel("Language").selectOption("Python");
+  await expect(editor(page)).toHaveValue("# my python\n");
+  expect(errors).toEqual([]);
+});
+
+test("stopping or switching scene while Python loads leaves nothing running", async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = await openSim(page);
+  await openPython(page);
+  await run(page);
+  expect((await program(page)).loaded).toBe(false);
+  await panel(page).getByRole("button", { name: "Stop" }).click();
+  await expect.poll(() => program(page).then((p) => p.state)).toBe("none");
+  await expect(panel(page).getByRole("status")).toHaveText("Stopped.");
+  await run(page);
+  await page.locator("#scene-picker").selectOption("hello");
+  await expect.poll(() => program(page).then((p) => p.state)).toBe("none");
+  // Nothing comes back later to start driving.
+  await page.waitForTimeout(8000);
+  expect((await program(page)).state).toBe("none");
+  await expect(panel(page).getByRole("status")).toContainText("the scene changed");
+  expect(errors).toEqual([]);
+});
+
+test("cancelling the switch to Blocks keeps the Python code", async ({ page }) => {
+  const errors = await openSim(page, "?scene=sensors", "dismiss");
+  await openPython(page);
+  await editor(page).fill("# my python\n");
+  await panel(page).getByLabel("Language").selectOption("JavaScript");
+  await editor(page).fill("// my javascript\n"); // edited code: Blocks asks first
+  await panel(page).getByLabel("Language").selectOption("Python");
+  await panel(page).getByRole("button", { name: "Blocks" }).click();
+  await expect(panel(page).getByLabel("Language")).toHaveValue("python");
   await expect(editor(page)).toHaveValue("# my python\n");
   expect(errors).toEqual([]);
 });

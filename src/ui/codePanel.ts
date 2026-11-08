@@ -72,6 +72,8 @@ export class CodePanel {
   private loadedExample: string | null = null;
   /** Bumped by every setView(), so a switch waiting for Blockly to load can tell it's stale. */
   private viewRequest = 0;
+  /** The view the latest setView() asked for. */
+  private viewTarget: EditorView = "code";
   private language: Language = "javascript";
   private readonly languageSelect: HTMLSelectElement;
   private readonly help: HTMLElement;
@@ -330,6 +332,7 @@ export class CodePanel {
    */
   async setView(view: EditorView): Promise<void> {
     const request = ++this.viewRequest;
+    this.viewTarget = view;
     if (view === "code") {
       if (this.blocksLoading) this.setStatus(""); // a pending switch to blocks is cancelled
       if (this.view === "code") return;
@@ -340,16 +343,28 @@ export class CodePanel {
       return;
     }
     if (this.view === "blocks") return;
-    // Blocks make JavaScript.
-    if (this.language !== "javascript") this.setLanguage("javascript");
+    // Blocks make JavaScript: show it (and put Python back if the switch doesn't happen).
+    const before = this.language;
+    if (before !== "javascript") this.setLanguage("javascript");
+    const undoLanguage = () => {
+      if (before !== this.language) this.setLanguage(before);
+    };
     const example = this.loadedExample !== null && this.editor.value === findExample(this.loadedExample)?.code ? findExample(this.loadedExample)! : null;
     const edits = this.edited && this.editor.value.trim() !== "" && this.editor.value !== this.blocksCode;
     if (edits && !window.confirm("Switch to blocks? Blocks can't be made from code, so your code changes will be replaced by the blocks' program.")) {
+      undoLanguage();
       return;
     }
     const blocks = await this.loadBlocks();
+    if (!blocks) {
+      undoLanguage();
+      return;
+    }
     // Stale: the user pressed Code (or Blocks again) while Blockly was loading.
-    if (!blocks || request !== this.viewRequest) return;
+    if (request !== this.viewRequest) {
+      if (this.viewTarget === "code") undoLanguage();
+      return;
+    }
     this.view = "blocks";
     this.showView();
     blocks.resize();
@@ -377,6 +392,7 @@ export class CodePanel {
     // Nothing typed or picked meanwhile may be lost when the blocks take over.
     this.editor.readOnly = true;
     this.firstControl.disabled = true;
+    this.languageSelect.disabled = true;
     this.blocksLoading = import("./blocksEditor")
       .then(({ BlocksEditor }) => {
         // Blockly measures its container, so it must be on screen while it starts.
@@ -399,6 +415,7 @@ export class CodePanel {
         this.viewButtons.blocks.removeAttribute("aria-busy");
         this.editor.readOnly = false;
         this.firstControl.disabled = false;
+        this.languageSelect.disabled = false;
       });
     return this.blocksLoading;
   }
