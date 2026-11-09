@@ -67,13 +67,13 @@ Goal: make the robot do things by itself.
 - [x] Python is a stretch goal (Pyodide, lazy-loaded) — only if it keeps the perf budget
 - **Acceptance:** unit tests for the controller API against the compiled template; e2e runs each example program and asserts its effect (square returns near start; avoider doesn't hit a wall in 10 s); e2e with `while(true){}` shows an error and the page stays responsive.
 
-## M5 — Environments
+## M5 — Environments ✅
 
 Goal: something to do.
 
-- [ ] Environments as data (`src/envs/`): flat playground, maze, line-follow track, sumo ring
-- [ ] Each environment has a goal, a timer, and a success/fail banner (maze: reach the exit; line: finish a lap; sumo: push the box out)
-- [ ] Environment picker; the robot spawns at the environment's start pose
+- [x] Environments as data (`src/envs/`): flat playground, maze, line-follow track, sumo ring
+- [x] Each environment has a goal, a timer, and a success/fail banner (maze: reach the exit; line: finish a lap; sumo: push the box out)
+- [x] Environment picker; the robot spawns at the environment's start pose
 - **Acceptance:** for every environment a *reference controller* (checked in under `tests/`) completes the goal in a unit test (Node, no browser), so we know each one is solvable; e2e switches through all environments with no errors and ≥ 80% real time.
 
 ## M6 — Share + remix
@@ -201,4 +201,27 @@ _(Agents: add dated notes here when stopping partway through a milestone.)_
     Pyodide loads, before user code runs (`src/control/workerSafety.ts`,
     shared with the JS worker). Each run uses a fresh worker, so Reset
     re-initialises Python (a few seconds; files come from the HTTP cache).
-
+- 2026-11-09 (M5): done. Notes for M6 and later:
+  - `src/envs/`: one file per environment (`playground`, `maze`, `line`,
+    `sumo`), each an `Environment` (id, name, goal text, time limit, start
+    pose, world MJCF, sensors it needs, suggested template, `createGoal()`).
+    `GoalTracker` (`goal.ts`) latches the first success/fail, applies the
+    time limit, and starts a fresh attempt when sim time goes backwards
+    (Reset, Run). The clock starts only when the robot first moves 2 cm
+    from its spawn point (time spent writing a program doesn't count), and
+    the reported time is from then. Goals read state through `EnvView` (`simView(sim)`), so
+    they are pure and unit-tested in Node.
+  - The "My robot" scene (`build`) is now the builder's robot *in an
+    environment* (default: Playground, which is the old empty floor plus a
+    target circle). The header's "Environment" picker (`#env-picker`)
+    switches it; `?env=<id>` opens it with the environment's suggested
+    template. The goal is checked before every physics step (in the loop's
+    `beforeStep`), so it can't be skipped on slow frames. M6 should share
+    the environment id along with the spec and code.
+  - Reference controllers live in `tests/envs/reference.ts` (plain user
+    JavaScript for a stock template); `tests/unit/envs.test.ts` runs each
+    to success, and the e2e runs two of them through the code panel.
+  - The maze reference uses timed 90° turns tuned for the Sensor bot; if
+    parts or physics change, retune `QUARTER` there (not the test).
+  - The old "Sensor playground" scene is still there; the line track and
+    maze cover similar ground, so it could be folded in later.

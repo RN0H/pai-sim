@@ -165,6 +165,12 @@ export class BuilderPanel {
     return withName(this.current, this.nameInput.value);
   }
 
+  /** Start over from a template (as if its button was pressed). */
+  useTemplate(id: string): void {
+    const spec = templateSpec(id);
+    this.apply(spec, `Started from ${spec.name}.`, true);
+  }
+
   /**
    * Tell the panel whether the sim is running its robot. When it isn't (the
    * user picked another scene), the panel says so and offers to show it.
