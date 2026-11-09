@@ -207,7 +207,9 @@ _(Agents: add dated notes here when stopping partway through a milestone.)_
     pose, world MJCF, sensors it needs, suggested template, `createGoal()`).
     `GoalTracker` (`goal.ts`) latches the first success/fail, applies the
     time limit, and starts a fresh attempt when sim time goes backwards
-    (Reset, Run). Goals read state through `EnvView` (`simView(sim)`), so
+    (Reset, Run). The clock starts only when the robot first moves 2 cm
+    from its spawn point (time spent writing a program doesn't count), and
+    the reported time is from then. Goals read state through `EnvView` (`simView(sim)`), so
     they are pure and unit-tested in Node.
   - The "My robot" scene (`build`) is now the builder's robot *in an
     environment* (default: Playground, which is the old empty floor plus a
