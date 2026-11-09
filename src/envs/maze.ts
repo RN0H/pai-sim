@@ -61,6 +61,8 @@ const EXIT_Y = cellCenter(EXIT_CELL)[1];
 export const EXIT_LINE = X0 + COLS * CELL + 0.15;
 const [START_X, START_Y] = cellCenter([0, 0]);
 
+const RUNNING = { state: "running", message: "Find the way out of the maze (the gap in the east wall)." } as const;
+
 export const MAZE: Environment = {
   id: "maze",
   name: "Maze",
@@ -78,7 +80,7 @@ export const MAZE: Environment = {
       const [x, y] = view.body("rover");
       return x > EXIT_LINE && Math.abs(y - EXIT_Y) < CELL
         ? { state: "success", message: "You escaped the maze!" }
-        : { state: "running", message: "Find the way out of the maze (the gap in the east wall)." };
+        : RUNNING;
     },
   }),
 };

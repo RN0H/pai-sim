@@ -7,6 +7,8 @@ import type { Environment } from "./types";
 
 export const TARGET = { x: 1.6, y: 0.8, radius: 0.3 } as const;
 
+const RUNNING = { state: "running", message: "Drive into the green circle." } as const;
+
 export const PLAYGROUND: Environment = {
   id: "playground",
   name: "Playground",
@@ -21,7 +23,7 @@ export const PLAYGROUND: Environment = {
       const [x, y] = view.body("rover");
       return Math.hypot(x - TARGET.x, y - TARGET.y) < TARGET.radius
         ? { state: "success", message: "You reached the circle!" }
-        : { state: "running", message: "Drive into the green circle." };
+        : RUNNING;
     },
   }),
 };

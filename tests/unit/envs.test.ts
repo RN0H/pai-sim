@@ -102,6 +102,10 @@ describe("every environment with every template", () => {
         expect(sim.hasInvalidState()).toBe(false);
         const [x, y, z] = simView(sim).body(ROBOT_BODY);
         expect(Math.hypot(x - env.start.x, y - env.start.y)).toBeLessThan(0.02);
+        const id = sim.bodyId(ROBOT_BODY);
+        const q = sim.data.xquat;
+        const yaw = 2 * Math.atan2(q[4 * id + 3]!, q[4 * id]!);
+        expect(Math.abs(Math.atan2(Math.sin(yaw - env.start.yaw), Math.cos(yaw - env.start.yaw)))).toBeLessThan(0.05);
         expect(z).toBeGreaterThan(0);
         expect(z).toBeLessThan(0.15);
       });
@@ -111,8 +115,13 @@ describe("every environment with every template", () => {
 
 describe("goals aren't met by doing nothing", () => {
   for (const env of ENVIRONMENTS) {
-    it(`${env.id}: a robot that sits still fails when time runs out`, () => {
+    it(`${env.id}: a robot that sits still never starts the clock`, () => {
       const { status } = attempt(env, env.suggestedTemplate, "robot.setWheels(0, 0);");
+      expect(status).toMatchObject({ state: "running", started: false, remaining: env.timeLimit });
+    });
+
+    it(`${env.id}: a robot that only creeps forward fails when time runs out`, () => {
+      const { status } = attempt(env, env.suggestedTemplate, "robot.setWheels(0.02, 0.02);", 3 * env.timeLimit);
       expect(status.state).toBe("fail");
       expect(status.message).toMatch(/Time's up/);
       expect(status.time).toBeGreaterThanOrEqual(env.timeLimit);
@@ -171,28 +180,49 @@ describe("goal tracker", () => {
     timeLimit: 10,
     createGoal: () => ({ update: (v: EnvView) => ({ state: v.time >= 5 ? state : "running", message: state }) }),
   });
-  const at = (time: number): EnvView => ({ time, body: () => [0, 0, 0] });
+  /** The robot sits at the origin until `moveAt`, then is 1 m away. */
+  const at = (time: number, moveAt = 1): EnvView => ({ time, body: () => (time >= moveAt ? [1, 0, 0] : [0, 0, 0]) });
+
+  it("waits for the robot to move before starting the clock", () => {
+    const tr = new GoalTracker(fake("running"));
+    expect(tr.update(at(0))).toMatchObject({ state: "running", started: false, remaining: 10 });
+    expect(tr.update(at(0.5))).toMatchObject({ state: "running", started: false, remaining: 10 });
+    // Minutes spent writing a program don't count.
+    expect(tr.update(at(300, 400))).toMatchObject({ state: "running", started: false, remaining: 10 });
+    expect(tr.update(at(400, 400))).toMatchObject({ state: "running", started: true, time: 0, remaining: 10 });
+    expect(tr.update(at(409.9, 400)).state).toBe("running");
+    expect(tr.update(at(410, 400))).toMatchObject({ state: "fail", time: 10 });
+  });
 
   it("counts down while running, then latches the first result", () => {
     const tr = new GoalTracker(fake("success"));
-    expect(tr.update(at(1))).toMatchObject({ state: "running", remaining: 9 });
-    expect(tr.update(at(5))).toMatchObject({ state: "success", time: 5, remaining: 0 });
-    expect(tr.update(at(11))).toMatchObject({ state: "success", time: 5 });
+    tr.update(at(0));
+    expect({ ...tr.update(at(2)) }).toMatchObject({ state: "running", started: true, time: 0, remaining: 10 });
+    expect({ ...tr.update(at(3)) }).toMatchObject({ state: "running", time: 1, remaining: 9 });
+    expect(tr.update(at(5))).toMatchObject({ state: "success", time: 3, remaining: 0 });
+    expect(tr.update(at(20))).toMatchObject({ state: "success", time: 3 });
   });
 
   it("fails when time runs out", () => {
     const tr = new GoalTracker(fake("running"));
-    tr.update(at(9.9));
-    expect(tr.update(at(10))).toMatchObject({ state: "fail", message: expect.stringMatching(/Time's up/) });
+    tr.update(at(0));
+    tr.update(at(1));
+    tr.update(at(10.9));
+    expect(tr.update(at(11))).toMatchObject({ state: "fail", message: expect.stringMatching(/Time's up/) });
   });
 
-  it("starts a fresh attempt when time goes back (Reset or Run)", () => {
+  it("starts a fresh attempt when time goes back (Reset or Run), or on restart()", () => {
     let made = 0;
     const env = { ...fake("fail"), createGoal: () => (made++, fake("fail").createGoal()) };
     const tr = new GoalTracker(env);
+    tr.update(at(0));
     expect(tr.update(at(6)).state).toBe("fail");
-    expect(tr.update(at(0.002))).toMatchObject({ state: "running", time: 0.002 });
+    expect(tr.update(at(0.002))).toMatchObject({ state: "running", started: false, remaining: 10 });
     expect(made).toBe(2);
+    tr.update(at(6));
+    tr.restart();
+    expect(tr.status).toMatchObject({ state: "running", started: false });
+    expect(made).toBe(3);
   });
 });
 

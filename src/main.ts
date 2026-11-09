@@ -304,6 +304,7 @@ async function main(): Promise<void> {
       onChange: (spec) => loadBuild(spec),
     });
     const banner = new GoalBanner($("#goal"), (id) => builder.useTemplate(id));
+    banner.focusAfterTip = envPicker;
 
     envPicker.addEventListener("change", () => {
       if (!envPicker.value) return;
@@ -527,6 +528,11 @@ async function main(): Promise<void> {
     const resetAll = () => {
       if (program && programCode !== null) startProgram(programCode, programLanguage);
       else cur.sim.reset();
+      // A fresh attempt now, even while paused (the loop only checks the goal when it steps).
+      if (goal) {
+        goal.restart();
+        banner.update(goal.status);
+      }
     };
     $("#reset").addEventListener("click", resetAll);
     const pauseBtn = $<HTMLButtonElement>("#pause");

@@ -18,6 +18,21 @@ export function formatClock(seconds: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+const templateName = (id: string) => TEMPLATES.find((t) => t.id === id)?.spec.name ?? id;
+
+/** Same robot (ignoring key order). */
+function sameSpec(a: RobotSpec, b: RobotSpec): boolean {
+  return (
+    a.name === b.name &&
+    a.chassis === b.chassis &&
+    a.wheels === b.wheels &&
+    a.motor === b.motor &&
+    a.caster === b.caster &&
+    (a.color ?? "") === (b.color ?? "") &&
+    a.sensors.join() === b.sensors.join()
+  );
+}
+
 export class GoalBanner {
   private readonly envName: HTMLElement;
   private readonly text: HTMLElement;
@@ -27,6 +42,9 @@ export class GoalBanner {
   private readonly tipButton: HTMLButtonElement;
   private readonly live: HTMLElement;
   private env: Environment | null = null;
+  private spec: RobotSpec | null = null;
+  /** Where focus goes when the tip disappears after its button is used. */
+  focusAfterTip: HTMLElement | null = null;
   private lastKey = "";
 
   constructor(
@@ -41,7 +59,14 @@ export class GoalBanner {
     this.tipButton = root.querySelector<HTMLButtonElement>("#goal-tip-use")!;
     this.live = $(root, "#goal-live");
     this.tipButton.addEventListener("click", () => {
-      if (this.env) onUseTemplate(this.env.suggestedTemplate);
+      if (!this.env || !this.spec) return;
+      // Don't throw away a robot the user designed without asking.
+      const id = this.env.suggestedTemplate;
+      const own = !TEMPLATES.some((t) => sameSpec(t.spec, this.spec!));
+      if (own && !confirm(`Replace ${this.spec.name} with the ${templateName(id)}? Your changes to ${this.spec.name} will be lost.`)) return;
+      onUseTemplate(id);
+      // The button hides once the robot has the sensor: keep keyboard focus nearby.
+      if (this.tip.hidden) this.focusAfterTip?.focus();
     });
   }
 
@@ -49,6 +74,7 @@ export class GoalBanner {
   show(env: Environment | null, spec: RobotSpec | null): void {
     const changed = env !== this.env;
     this.env = env;
+    this.spec = spec;
     this.root.hidden = env === null;
     if (!env || !spec) return;
     this.envName.textContent = `${env.name}:`;
@@ -56,9 +82,8 @@ export class GoalBanner {
     this.tip.hidden = missing.length === 0;
     if (missing.length) {
       const names = missing.map((id) => findPart("sensor", id)?.name.toLowerCase() ?? id).join(" and a ");
-      const t = TEMPLATES.find((x) => x.id === env.suggestedTemplate)!;
       this.tipText.textContent = `Tip: this one needs a ${names}. Add it in Build, or`;
-      this.tipButton.textContent = `use the ${t.spec.name}`;
+      this.tipButton.textContent = `use the ${templateName(env.suggestedTemplate)}`;
     }
     if (changed) {
       this.lastKey = "";
@@ -73,7 +98,9 @@ export class GoalBanner {
     this.root.dataset.state = status.state;
     if (status.state === "running") {
       this.text.textContent = status.message;
-      this.timer.textContent = `${formatClock(status.remaining)} left`;
+      this.timer.textContent = status.started
+        ? `${formatClock(status.remaining)} left`
+        : `${formatClock(status.remaining)} left · the clock starts when you move`;
     } else {
       this.text.textContent = status.state === "success" ? `${status.message} Time: ${status.time.toFixed(1)} s.` : status.message;
       this.timer.textContent = "";

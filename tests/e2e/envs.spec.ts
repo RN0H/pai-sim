@@ -78,7 +78,7 @@ test("the picker switches through every environment with no errors and keeps rea
     await expect(banner(page)).toBeVisible();
     await expect(banner(page)).toContainText(`${env.name}:`);
     await expect(banner(page)).toContainText(/\d:\d\d left/);
-    // The robot spawned at the start pose and the world has props in it.
+    // The world has props in it (the start pose is checked in tests/unit/envs.test.ts).
     expect(await page.evaluate(() => window.__paiSim.drawnGeoms())).toBeGreaterThan(10);
     const url = new URL(page.url());
     expect(url.searchParams.get("env")).toBe(env.id === "playground" ? null : env.id);
@@ -123,6 +123,46 @@ test("a robot missing a sensor gets a tip that swaps in a suitable template", as
   expect(errors).toEqual([]);
 });
 
+test("the tip asks before replacing a robot the user designed", async ({ page }) => {
+  const dialogs: string[] = [];
+  page.on("dialog", (d) => {
+    dialogs.push(d.message());
+    void d.dismiss();
+  });
+  await page.goto("./");
+  await page.waitForFunction(() => window.__paiSim?.ready);
+  await page.getByRole("button", { name: "Build", exact: true }).click();
+  const name = page.getByRole("complementary", { name: "Build your robot" }).getByRole("textbox", { name: "Name" });
+  await name.fill("Zoomy");
+  await name.press("Enter");
+  await expect.poll(() => page.evaluate(() => window.__paiSim.builderSpec().name)).toBe("Zoomy");
+  await page.getByRole("button", { name: "Close the builder" }).click();
+  await page.getByRole("combobox", { name: "Environment" }).selectOption({ label: "Maze" });
+  await page.locator("#goal-tip").getByRole("button", { name: "use the Sensor bot" }).click();
+  expect(dialogs).toEqual([expect.stringContaining("Replace Zoomy with the Sensor bot?")]);
+  // Declined: the robot is unchanged.
+  expect(await page.evaluate(() => window.__paiSim.builderSpec().name)).toBe("Zoomy");
+  await expect(page.locator("#goal-tip")).toBeVisible();
+});
+
+test("the clock waits for the robot to move, and Reset works while paused", async ({ page }) => {
+  const errors = await openSim(page, "?env=maze");
+  await page.waitForTimeout(1500);
+  await expect(banner(page)).toContainText("2:00 left · the clock starts when you move");
+  expect(await goal(page)).toMatchObject({ started: false, remaining: 120 });
+  // Drive with the keyboard until the clock starts.
+  await page.locator("#viewport").click({ position: { x: 30, y: 400 } });
+  await page.keyboard.down("ArrowUp");
+  await expect.poll(() => goal(page).then((g) => g?.started)).toBe(true);
+  await page.keyboard.up("ArrowUp");
+  await expect(banner(page)).not.toContainText("clock starts");
+  await page.locator("#pause").click();
+  await page.locator("#reset").click();
+  expect(await goal(page)).toMatchObject({ state: "running", started: false, remaining: 120 });
+  await expect(banner(page)).toContainText("the clock starts when you move");
+  expect(errors).toEqual([]);
+});
+
 test("the line track's reference program finishes a lap and the banner says so", async ({ page }) => {
   test.setTimeout(120_000);
   const errors = await openSim(page, "?env=line");
@@ -140,7 +180,7 @@ test("the line track's reference program finishes a lap and the banner says so",
 
 test("sumo: leaving the ring fails, and Reset starts a fresh attempt", async ({ page }) => {
   const errors = await openSim(page, "?env=sumo");
-  await expect(banner(page)).toContainText("0:45 left");
+  await expect(banner(page)).toContainText("0:45 left · the clock starts when you move");
   await runProgram(page, "robot.setWheels(-1, -1);");
   await expect.poll(() => goal(page).then((g) => g?.state), { timeout: 30_000 }).toBe("fail");
   await expect(banner(page)).toHaveAttribute("data-state", "fail");

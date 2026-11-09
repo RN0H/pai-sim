@@ -12,6 +12,8 @@ export const BOX_BODY = "sumo_box";
 
 const GOAL = "Push the box out of the ring, but stay inside yourself.";
 
+const RUNNING = { state: "running", message: GOAL } as const;
+
 const box = `
     <body name="${BOX_BODY}" pos="${f(BOX_START.x)} ${f(BOX_START.y)} ${f(BOX_HALF)}">
       <freejoint name="${BOX_BODY}"/>
@@ -36,7 +38,7 @@ export const SUMO: Environment = {
       if (Math.hypot(bx, by) > RING_RADIUS) return { state: "success", message: "The box is out. You win!" };
       const [x, y] = view.body("rover");
       if (Math.hypot(x, y) > RING_RADIUS) return { state: "fail", message: "Your robot left the ring! Press Reset to try again." };
-      return { state: "running", message: GOAL };
+      return RUNNING;
     },
   }),
 };

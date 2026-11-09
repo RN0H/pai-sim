@@ -53,10 +53,13 @@ export function floorDisc(name: string, x: number, y: number, radius: number, rg
   return `\n    <geom name="${name}" type="cylinder" size="${f(radius)} 0.0005" pos="${f(x)} ${f(y)} ${f(z)}" rgba="${rgba}" ${VISUAL}/>`;
 }
 
-/** A flag on a pole, purely visual, standing at (x, y). */
+/**
+ * A flag on a pole standing at (x, y). The pole is solid: the distance
+ * sensor sees it, so the robot bumps into it too (no phantom obstacles).
+ */
 export function flag(name: string, x: number, y: number, rgba = "0.2 0.7 0.35 1"): string {
   return (
-    `\n    <geom name="${name}_pole" type="cylinder" size="0.006 0.15" pos="${f(x)} ${f(y)} 0.15" rgba="0.85 0.86 0.88 1" ${VISUAL}/>` +
+    `\n    <geom name="${name}_pole" type="cylinder" size="0.006 0.15" pos="${f(x)} ${f(y)} 0.15" rgba="0.85 0.86 0.88 1"/>` +
     `\n    <geom name="${name}" type="box" size="0.05 0.003 0.035" pos="${f(x + 0.05)} ${f(y)} 0.26" rgba="${rgba}" ${VISUAL}/>`
   );
 }

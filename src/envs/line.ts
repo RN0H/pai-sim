@@ -50,7 +50,8 @@ const GOAL = "Follow the line for one full lap.";
 const startPosts = [-1, 1]
   .map(
     (side) =>
-      `\n    <geom name="line_start_${side < 0 ? "in" : "out"}" type="box" size="0.015 0.015 0.04" pos="${f(START.x)} ${f(START.y - side * 0.2)} 0.04" rgba="0.95 0.6 0.15 1" ${VISUAL}/>`,
+      // Low (2.4 cm), so the distance sensor (higher up) never sees them as obstacles.
+      `\n    <geom name="line_start_${side < 0 ? "in" : "out"}" type="box" size="0.015 0.015 0.012" pos="${f(START.x)} ${f(START.y - side * 0.2)} 0.012" rgba="0.95 0.6 0.15 1" ${VISUAL}/>`,
   )
   .join("");
 
@@ -68,6 +69,8 @@ export const LINE_TRACK: Environment = {
     // is convex, so following it always turns the same way round).
     let last: number | null = null;
     let swept = 0;
+    let shownPct = -1;
+    let running: GoalStatus = { state: "running", message: GOAL };
     return {
       update(view: EnvView): GoalStatus {
         const [x, y] = view.body("rover");
@@ -82,7 +85,11 @@ export const LINE_TRACK: Environment = {
         last = a;
         if (Math.abs(swept) >= 2 * Math.PI) return { state: "success", message: "Lap complete!" };
         const pct = Math.floor((Math.abs(swept) / (2 * Math.PI)) * 100);
-        return { state: "running", message: `${GOAL} ${pct}% done.` };
+        if (pct !== shownPct) {
+          shownPct = pct;
+          running = { state: "running", message: `${GOAL} ${pct}% done.` };
+        }
+        return running;
       },
     };
   },
