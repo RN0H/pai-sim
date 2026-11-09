@@ -16,6 +16,8 @@
       <div class="scene-controls">
         <label for="scene-picker" class="visually-hidden">Scene</label>
         <select id="scene-picker" title="Choose a scene"></select>
+        <label for="env-picker" class="visually-hidden">Environment</label>
+        <select id="env-picker" title="Put your robot in an environment with a goal"></select>
         <input id="file-input" class="visually-hidden" type="file" accept=".xml,.mjcf,text/xml,application/xml" />
         <label for="file-input" class="file-button" title="Open a MuJoCo .xml model from your device (or drop it on the page)">Open .xml</label>
       </div>
@@ -33,6 +35,11 @@
           <p><strong>Couldn't open that model.</strong> <span id="load-error-text"></span></p>
           <p class="load-error-sub">The previous scene is still running.</p>
           <button id="load-error-close" type="button" aria-label="Dismiss error">Dismiss</button>
+        </div>
+        <div id="goal" class="goal" hidden>
+          <p class="goal-line"><strong id="goal-env"></strong> <span id="goal-text"></span> <span id="goal-timer" class="goal-timer" aria-hidden="true"></span></p>
+          <p id="goal-tip" class="goal-tip" hidden><span id="goal-tip-text"></span> <button id="goal-tip-use" type="button"></button></p>
+          <p id="goal-live" class="visually-hidden" aria-live="polite"></p>
         </div>
         <div id="drop-overlay" class="drop-overlay" hidden>Drop a MuJoCo .xml file to open it</div>
         <div id="drive-pad" class="pad" role="group" aria-label="Drive controls">

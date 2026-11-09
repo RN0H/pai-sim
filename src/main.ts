@@ -7,7 +7,8 @@ import { DEFAULT_SCENE_ID, findScene, SCENES } from "./scenes";
 import { templateSpec } from "./robot/templates";
 import type { RobotSpec } from "./robot/spec";
 import { BuilderPanel } from "./ui/builder";
-import { buildScene } from "./ui/builderModel";
+import { DEFAULT_ENV_ID, ENVIRONMENTS, envScene, findEnv, GoalTracker, simView, type EnvView, type TrackedStatus } from "./envs";
+import { GoalBanner } from "./ui/goalBanner";
 import { CodePanel } from "./ui/codePanel";
 import { isSoftwareRenderer } from "./render/software";
 import type { Controller } from "./control/controller";
@@ -21,8 +22,6 @@ const CUSTOM_OPTION = "__custom";
 const BUILD_OPTION = "__build";
 /** Scene id for the robot made in the builder. */
 const BUILD_SCENE = "build";
-/** Scenes whose robot sits at the origin, so the builder keeps their camera. */
-const ROBOT_SCENES = new Set(["hello", BUILD_SCENE]);
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 
@@ -41,6 +40,10 @@ export interface TestHooks {
   modelName(): string;
   /** Last load error shown to the user, or null. */
   loadError(): string | null;
+  /** Environment the robot is in ("build" scene only), or null. */
+  env(): string | null;
+  /** The environment goal's status, or null outside an environment. */
+  goal(): TrackedStatus | null;
   /** Number of geoms currently drawn. */
   drawnGeoms(): number;
   /** The robot spec the builder shows (read-only: tests build through the UI). */
@@ -70,6 +73,8 @@ interface Current {
   sim: Sim;
   /** Bundled scene id, "custom" (a user's file) or "build" (the builder's robot). */
   sceneId: string;
+  /** For the "build" scene: the environment it's in. */
+  envId: string | null;
   /** Actuator ids and the top speed (rad/s) the drive pad commands. */
   drive: { left: number; right: number; maxSpeed: number } | null;
 }
@@ -86,6 +91,8 @@ async function main(): Promise<void> {
     scene: () => "",
     modelName: () => "",
     loadError: () => null,
+    env: () => null,
+    goal: () => null,
     drawnGeoms: () => 0,
     builderSpec: () => templateSpec("hauler"),
     cameraPos: () => [0, 0, 0],
@@ -101,8 +108,33 @@ async function main(): Promise<void> {
     const picker = $<HTMLSelectElement>("#scene-picker");
     for (const s of SCENES) picker.add(new Option(s.name, s.id));
 
-    const initial = findScene(params.get("scene"));
-    let cur: Current = makeCurrent(new Sim(mj, initial.xml), initial.id);
+    // ?env=<id> opens the builder's robot in an environment (with the
+    // template that suits it); otherwise ?scene=<id> picks a bundled scene.
+    let envId = params.has("env") ? findEnv(params.get("env")).id : DEFAULT_ENV_ID;
+    const initialSpec = templateSpec(params.has("env") ? findEnv(envId).suggestedTemplate : "hauler");
+    const initialBuild = params.has("env") ? envScene(findEnv(envId), initialSpec) : null;
+    let cur: Current;
+    if (initialBuild?.ok) cur = makeCurrent(new Sim(mj, initialBuild.xml), BUILD_SCENE, envId);
+    else {
+      const initial = findScene(params.get("scene"));
+      cur = makeCurrent(new Sim(mj, initial.xml), initial.id, null);
+    }
+
+    const envPicker = $<HTMLSelectElement>("#env-picker");
+    // Shown while a scene other than "My robot" runs: picking any environment then loads the robot into it.
+    const envPlaceholder = new Option("Challenges…", "");
+    envPlaceholder.disabled = true;
+    envPicker.add(envPlaceholder);
+    for (const e of ENVIRONMENTS) envPicker.add(new Option(e.name, e.id));
+
+    /** The goal of the environment the robot is in (null outside one), and its view of the sim. */
+    let goal: GoalTracker | null = null;
+    let goalView: EnvView | null = null;
+    const trackGoal = () => {
+      goal = cur.envId ? new GoalTracker(findEnv(cur.envId)) : null;
+      goalView = goal ? simView(cur.sim) : null;
+    };
+    trackGoal();
 
     const view = new SceneRenderer($("#viewport"));
     view.load(cur.sim);
@@ -120,6 +152,7 @@ async function main(): Promise<void> {
     const loop = new SimLoop(
       cur.sim,
       (s) => {
+        if (goal && goalView) goal.update(goalView);
         if (program) return program.beforeStep();
         if (!cur.drive) return;
         const cmd = override ?? drive.cmd;
@@ -160,6 +193,9 @@ async function main(): Promise<void> {
 
     const syncUi = () => {
       builder.setShowing(cur.sceneId === BUILD_SCENE);
+      envPicker.value = cur.envId ?? "";
+      banner.show(cur.envId ? findEnv(cur.envId) : null, cur.envId ? builtSpec : null);
+      if (goal) banner.update(goal.status);
       const hasDrive = cur.drive !== null;
       pad.hidden = !hasDrive || program !== null;
       // Touch screens (phones, tablets) get touch wording.
@@ -194,18 +230,22 @@ async function main(): Promise<void> {
     // scene the user picked afterwards.
     let loadSeq = 0;
 
-    const setSceneParam = (id: string | null) => {
+    /** Put the scene (or, for the robot, its environment) in the URL. Defaults are left out. */
+    const setSceneParam = (id: string | null, env: string | null = null) => {
       const url = new URL(location.href);
       if (id && id !== DEFAULT_SCENE_ID) url.searchParams.set("scene", id);
       else url.searchParams.delete("scene");
+      if (env && env !== DEFAULT_ENV_ID) url.searchParams.set("env", env);
+      else url.searchParams.delete("env");
       history.replaceState(null, "", url);
     };
 
-    const swapIn = (sim: Sim, sceneId: string, keepCamera: boolean) => {
+    const swapIn = (sim: Sim, sceneId: string, keepCamera: boolean, env: string | null = null) => {
       clearError();
       if (program) stopProgram("Stopped: the scene changed. Press Run to start it on this robot.");
       const old = cur.sim;
-      cur = makeCurrent(sim, sceneId);
+      cur = makeCurrent(sim, sceneId, env);
+      trackGoal();
       override = null;
       loop.setSim(sim);
       view.load(sim);
@@ -228,9 +268,14 @@ async function main(): Promise<void> {
     };
 
     // ---- Builder -----------------------------------------------------------
-    /** Load a builder spec as the "My robot" scene. Returns an error message, or null. */
-    const loadBuild = (spec: RobotSpec): string | null => {
-      const built = buildScene(spec);
+    /**
+     * Load a builder spec as the "My robot" scene, in environment `env`.
+     * `reframe` points the camera at the whole scene. Returns an error message, or null.
+     */
+    /** The robot in the "My robot" scene (the builder only takes a spec once it has loaded). */
+    let builtSpec: RobotSpec = initialSpec;
+    const loadBuild = (spec: RobotSpec, env: string = envId, reframe = false): string | null => {
+      const built = envScene(findEnv(env), spec);
       if (!built.ok) return built.errors.join(" ");
       let sim: Sim;
       try {
@@ -240,17 +285,34 @@ async function main(): Promise<void> {
       }
       loadSeq++;
       // Rebuilding the robot keeps the user's view; only re-frame when coming
-      // from a scene laid out differently (the arm, a user's file).
-      swapIn(sim, BUILD_SCENE, ROBOT_SCENES.has(cur.sceneId));
-      setSceneParam(null);
+      // from a scene laid out differently (another environment, the arm, a
+      // user's file). The Hello rover sits where the playground robot does.
+      const sameLayout =
+        !reframe &&
+        ((cur.sceneId === BUILD_SCENE && cur.envId === env) || (cur.sceneId === "hello" && env === DEFAULT_ENV_ID));
+      envId = env;
+      builtSpec = built.spec;
+      swapIn(sim, BUILD_SCENE, sameLayout, env);
+      setSceneParam(null, env);
       return null;
     };
 
     const builderPanel = $("#builder");
     const builderToggle = $<HTMLButtonElement>("#builder-toggle");
     const builder = new BuilderPanel($<HTMLFormElement>("#builder-form"), {
-      initial: templateSpec("hauler"), // the robot in the default Hello scene
-      onChange: loadBuild,
+      initial: initialSpec, // the Hello scene's robot, or the template suiting ?env=
+      onChange: (spec) => loadBuild(spec),
+    });
+    const banner = new GoalBanner($("#goal"), (id) => builder.useTemplate(id));
+
+    envPicker.addEventListener("change", () => {
+      if (!envPicker.value) return;
+      // A new environment is laid out differently: show all of it.
+      const failure = loadBuild(builder.spec, envPicker.value, true);
+      if (failure) {
+        showError(failure);
+        syncUi();
+      }
     });
     let builderOpen = false;
     const setBuilderOpen = (open: boolean) => {
@@ -316,7 +378,7 @@ async function main(): Promise<void> {
       program = null;
       programFailure = null;
       if (!cur.drive) {
-        code.setRunning(false, "This scene has no robot to drive. Pick Hello rover, Sensor playground or your own robot.");
+        code.setRunning(false, "This scene has no robot to drive. Pick Hello rover, Sensor playground, a challenge or your own robot.");
         return;
       }
       cur.sim.reset();
@@ -455,6 +517,7 @@ async function main(): Promise<void> {
 
     const hud = $("#hud");
     setInterval(() => {
+      if (goal) banner.update(goal.status);
       const { fps, realtimeFactor } = loop.stats;
       const q = view.isLowQuality ? " · lite" : "";
       hud.textContent = `t ${cur.sim.time.toFixed(1)}s · ${fps.toFixed(0)} fps · ${(realtimeFactor * 100).toFixed(0)}% real-time${q}`;
@@ -488,6 +551,8 @@ async function main(): Promise<void> {
       scene: () => cur.sceneId,
       modelName: () => cur.sim.modelName,
       loadError: () => lastError,
+      env: () => cur.envId,
+      goal: () => (goal ? { ...goal.status } : null),
       drawnGeoms: () => view.drawnCount,
       builderSpec: () => builder.spec,
       cameraPos: () => view.camera.position.toArray(),
@@ -528,10 +593,10 @@ def loop():
     robot.set_wheels(0.5, 0.5)  # both wheels half speed forward
 `;
 
-function makeCurrent(sim: Sim, sceneId: string): Current {
+function makeCurrent(sim: Sim, sceneId: string, envId: string | null): Current {
   const left = sim.actuatorId("left");
   const right = sim.actuatorId("right");
-  if (left < 0 || right < 0) return { sim, sceneId, drive: null };
+  if (left < 0 || right < 0) return { sim, sceneId, envId, drive: null };
   // Full stick = the motors' top speed (compiled robots set it per motor part).
   const range = sim.model.actuator_ctrlrange;
   const limits = sim.model.actuator_ctrllimited;
@@ -540,7 +605,7 @@ function makeCurrent(sim: Sim, sceneId: string): Current {
     { limited: !!limits[right], max: range[2 * right + 1]! },
   );
   const drive = { left, right, maxSpeed };
-  return { sim, sceneId, drive };
+  return { sim, sceneId, envId, drive };
 }
 
 void main();
