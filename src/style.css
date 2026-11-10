@@ -878,18 +878,19 @@ button:focus-visible {
 }
 
 @media (max-width: 600px) {
+  /* Tight enough that the name and five buttons share one row at 390 px, even in wide fonts (DejaVu Sans on Linux). */
   .bar {
     flex-wrap: wrap;
-    gap: 8px;
-    padding: 8px 12px;
+    gap: 8px 6px;
+    padding: 8px 10px;
   }
   .actions {
     margin-left: auto;
-    gap: 5px;
+    gap: 4px;
   }
   .actions button {
     flex: none;
-    padding: 6px 8px;
+    padding: 6px 7px;
   }
   /* Phones: Share is an icon (its name stays "Share" for screen readers), so the buttons fit beside the name. */
   .share-icon {

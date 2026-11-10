@@ -347,6 +347,12 @@ test.describe("on a phone", () => {
     const shareBox = (await shareButton(page).boundingBox())!;
     expect(Math.abs(shareBox.y - brand.y)).toBeLessThan(20);
     expect(shareBox.width).toBeGreaterThanOrEqual(32); // a usable touch target
+    // Linux CI renders with DejaVu Sans, which is wider than most fonts: it must fit there too.
+    const style = await page.addStyleTag({ content: ':root, button, select { font-family: "DejaVu Sans" !important; }' });
+    const brandDv = (await page.locator(".brand").boundingBox())!;
+    const resetDv = (await page.getByRole("button", { name: "Reset" }).boundingBox())!;
+    expect(Math.abs(resetDv.y - brandDv.y)).toBeLessThan(20);
+    await style.evaluate((el) => (el as Element).remove());
     await shareButton(page).tap();
     await expect(shareDialog(page)).toBeVisible();
     await expect(shareDialog(page).getByRole("textbox", { name: "Link" })).toHaveValue(/#s=/);

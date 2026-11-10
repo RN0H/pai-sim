@@ -37,6 +37,8 @@ function copyLater(link: Promise<LinkResult>): Promise<boolean> {
   try {
     if (typeof ClipboardItem !== "function" || !navigator.clipboard?.write) return Promise.resolve(false);
     const blob = link.then((l) => (l.ok ? new Blob([l.url], { type: "text/plain" }) : Promise.reject(new Error(l.reason))));
+    // No link (the dialog shows why): the write fails, which is expected, not an unhandled rejection.
+    blob.catch(() => {});
     return navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })]).then(
       () => true,
       () => false,
