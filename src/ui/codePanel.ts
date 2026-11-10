@@ -17,9 +17,12 @@
  */
 import { formatProgramError, type Language, type ProgramError } from "../control/api";
 import { EXAMPLES, findExample } from "../control/examples";
+import type { BlocksJson } from "../control/blocks";
+import type { SharedProgram } from "../share/link";
 import type { BlocksEditor } from "./blocksEditor";
 
 export type EditorView = "code" | "blocks";
+
 
 export interface CodePanelOptions {
   initialCode: string;
@@ -79,6 +82,11 @@ export class CodePanel {
   private readonly help: HTMLElement;
   /** The editor's state for the language that isn't showing. */
   private stashed: { value: string; edited: boolean; loadedExample: string | null };
+  /** Blocks from a link, shown the first time the panel opens (Blockly needs to be on screen to start). */
+  private pendingBlocks: BlocksJson | null = null;
+  /** The link's blocks, as long as the user hasn't changed them (so re-sharing gives the same link). */
+  private sharedBlocks: BlocksJson | null = null;
+  private readonly onRun: (code: string, language: Language) => void;
 
   constructor(
     root: HTMLElement,
@@ -96,6 +104,7 @@ export class CodePanel {
       if (this.view === "blocks" && this.blocks) {
         if (this.blocks.edited && !this.confirmReplace("blocks")) return;
         this.blocks.loadExample(ex.id);
+        this.sharedBlocks = null;
         this.setStatus(`Loaded the "${ex.name}" example as blocks. Press Run to try it.`);
         return;
       }
@@ -173,6 +182,7 @@ export class CodePanel {
     this.editor.setAttribute("wrap", "off");
     this.editor.addEventListener("input", () => {
       this.edited = true;
+      this.pendingBlocks = null; // it's a code program now
       this.loadedExample = null;
     });
     // Ctrl/Cmd+Enter runs, like many code playgrounds.
@@ -188,11 +198,8 @@ export class CodePanel {
     // ---- Run / stop ----------------------------------------------------------
     this.runBtn = el("button", { type: "button", className: "c-run" }, "Run");
     this.stopBtn = el("button", { type: "button", className: "c-stop", disabled: true }, "Stop");
-    this.runBtn.addEventListener("click", () => {
-      // Blockly reports changes a moment later; take the blocks' latest code now.
-      if (this.view === "blocks" && this.blocks) this.fromBlocks(this.blocks.code());
-      opts.onRun(this.editor.value, this.view === "blocks" ? "javascript" : this.language);
-    });
+    this.onRun = opts.onRun;
+    this.runBtn.addEventListener("click", () => this.run());
     this.stopBtn.addEventListener("click", () => opts.onStop());
     this.status = el("p", { className: "c-status", role: "status" });
     const buttons = el("div", { className: "c-buttons" }, this.runBtn, this.stopBtn);
@@ -233,6 +240,61 @@ export class CodePanel {
       this.errorBox,
       this.output,
     );
+  }
+
+  /**
+   * Run the program (as the Run button does). Blocks from a link are shown
+   * first, so what runs is always what the blocks say.
+   */
+  run(): void {
+    if (this.pendingBlocks) {
+      void this.setView("blocks", this.pendingBlocks).then(() => {
+        // Blockly couldn't load (or the user went back to the code): run the code shown.
+        this.pendingBlocks = null;
+        this.run();
+      });
+      return;
+    }
+    // Blockly reports changes a moment later; take the blocks' latest code now.
+    if (this.view === "blocks" && this.blocks) this.fromBlocks(this.blocks.code());
+    this.onRun(this.editor.value, this.view === "blocks" ? "javascript" : this.language);
+  }
+
+  /**
+   * The program shown, for sharing: the blocks too when the Blocks view is
+   * in use (or blocks from a link are waiting to be shown).
+   */
+  program(): SharedProgram {
+    if (this.pendingBlocks) return { language: "javascript", code: this.editor.value, blocks: this.pendingBlocks };
+    if (this.view === "blocks" && this.blocks) {
+      const code = this.blocks.code();
+      this.fromBlocks(code);
+      const unchanged = this.sharedBlocks && !this.blocks.edited;
+      return { language: "javascript", code, blocks: unchanged ? this.sharedBlocks! : this.blocks.save() };
+    }
+    return { language: this.language, code: this.editor.value };
+  }
+
+  /**
+   * Show a program from a share link. Its code is in the editor right away
+   * (so Run works); blocks appear when the panel is first shown.
+   */
+  restore(p: SharedProgram): void {
+    this.setLanguage(p.blocks ? "javascript" : p.language);
+    this.editor.value = p.code;
+    // Picking an example asks first, so the shared program isn't lost by accident.
+    this.edited = true;
+    this.loadedExample = null;
+    this.pendingBlocks = p.blocks ?? null;
+    this.setStatus("This program came with the link. Press Run to start it.");
+  }
+
+  /** The panel became visible: show blocks from a link, if any are waiting. */
+  shown(): void {
+    const pending = this.pendingBlocks;
+    if (!pending) return;
+    // It stays pending (and is what Share sends) until the blocks have loaded.
+    void this.setView("blocks", pending);
   }
 
   /** Reflect whether a program is running. */
@@ -330,7 +392,7 @@ export class CodePanel {
    * Blocks can't be made from code, so going back to blocks after editing
    * the code asks first: the blocks' code replaces those edits.
    */
-  async setView(view: EditorView): Promise<void> {
+  async setView(view: EditorView, initial?: BlocksJson): Promise<void> {
     const request = ++this.viewRequest;
     this.viewTarget = view;
     if (view === "code") {
@@ -350,11 +412,13 @@ export class CodePanel {
       if (before !== this.language) this.setLanguage(before);
     };
     const example = this.loadedExample !== null && this.editor.value === findExample(this.loadedExample)?.code ? findExample(this.loadedExample)! : null;
-    const edits = this.edited && this.editor.value.trim() !== "" && this.editor.value !== this.blocksCode;
+    // The link's own code (no "replace your code?" question for it).
+    const edits = !initial && this.edited && this.editor.value.trim() !== "" && this.editor.value !== this.blocksCode;
     if (edits && !window.confirm("Switch to blocks? Blocks can't be made from code, so your code changes will be replaced by the blocks' program.")) {
       undoLanguage();
       return;
     }
+    const linkCode = this.editor.value;
     const blocks = await this.loadBlocks();
     if (!blocks) {
       undoLanguage();
@@ -370,7 +434,21 @@ export class CodePanel {
     blocks.resize();
     // An example just loaded as code comes along as its blocks.
     let status = "Blocks view. Drag blocks in, then press Run.";
-    if (example && (!blocks.edited || window.confirm(`Replace your blocks with the "${example.name}" example?`))) {
+    if (initial) {
+      const fromLink = initial === this.pendingBlocks;
+      if (fromLink) this.pendingBlocks = null;
+      if (!blocks.tryLoad(initial)) {
+        // Keep the link's program as code rather than losing it.
+        this.view = "code";
+        this.showView();
+        this.editor.value = linkCode;
+        this.edited = true;
+        this.setStatus("The blocks in this link couldn't be loaded, so their program is shown as code.");
+        return;
+      }
+      if (fromLink) this.sharedBlocks = initial;
+      status = "These blocks came with the link. Press Run to start them.";
+    } else if (example && (!blocks.edited || window.confirm(`Replace your blocks with the "${example.name}" example?`))) {
       blocks.loadExample(example.id);
       status = `Loaded the "${example.name}" example as blocks. Press Run to try it.`;
     }

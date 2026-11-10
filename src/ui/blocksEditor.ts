@@ -77,6 +77,20 @@ export class BlocksEditor {
     this.emit();
   }
 
+  /**
+   * Load blocks from somewhere untrusted (a share link). If Blockly rejects
+   * them, the starter blocks are loaded instead and false is returned.
+   */
+  tryLoad(json: BlocksJson): boolean {
+    try {
+      this.load(json);
+      return true;
+    } catch {
+      this.load(STARTER_BLOCKS);
+      return false;
+    }
+  }
+
   /** Load the block version of an example program (src/control/examples.ts ids). */
   loadExample(id: string): boolean {
     const json = BLOCK_EXAMPLES[id];

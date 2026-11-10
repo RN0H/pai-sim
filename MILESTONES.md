@@ -76,14 +76,14 @@ Goal: something to do.
 - [x] Environment picker; the robot spawns at the environment's start pose
 - **Acceptance:** for every environment a *reference controller* (checked in under `tests/`) completes the goal in a unit test (Node, no browser), so we know each one is solvable; e2e switches through all environments with no errors and ≥ 80% real time.
 
-## M6 — Share + remix
+## M6 — Share + remix ✅
 
 Goal: a link is the whole sim.
 
-- [ ] Serialize robot spec + controller code + environment into the URL fragment (`#s=…`), compressed (`CompressionStream` deflate + base64url). No backend.
-- [ ] "Share" button copies the link; "Remix" makes clear you're editing a copy (shows "Remixed from …" with the parent link)
-- [ ] Opening a link restores the exact sim; malformed links show a friendly error and fall back to the default scene
-- [ ] Links stay under ~2,000 characters for typical robots
+- [x] Serialize robot spec + controller code + environment into the URL fragment (`#s=…`), compressed (`CompressionStream` deflate + base64url). No backend.
+- [x] "Share" button copies the link; "Remix" makes clear you're editing a copy (shows "Remixed from …" with the parent link)
+- [x] Opening a link restores the exact sim; malformed links show a friendly error and fall back to the default scene
+- [x] Links stay under ~2,000 characters for typical robots
 - **Acceptance:** unit round-trip tests (serialize → parse → deep equal) including unicode code; e2e builds a robot, writes code, shares, opens the link in a fresh page, and gets the same spec, the same code, and the same trajectory (determinism); an e2e for a corrupted link.
 
 ---
@@ -225,3 +225,28 @@ _(Agents: add dated notes here when stopping partway through a milestone.)_
     parts or physics change, retune `QUARTER` there (not the test).
   - The old "Sensor playground" scene is still there; the line track and
     maze cover similar ground, so it could be folded in later.
+- 2026-11-10 (M6): done; the rover MVP is complete. Notes for later:
+  - `src/share/link.ts` (pure): `#s=<format><base64url>`, format "1" =
+    deflate JSON (`CompressionStream`), "0" = plain JSON for browsers
+    without it. State: `{ v: 1, robot + env | scene, program: { language,
+    code, blocks? }, parent? }`. `decodeShare()` never throws; it validates
+    the spec (`validateSpec`), env/scene ids, sizes (payload, inflated JSON,
+    code) and the blocks JSON's shape (`blocksLookSane`), and drops a broken
+    parent. Bump `SHARE_VERSION` only with a migration: old links must keep
+    opening.
+  - Remix: a link opened and changed records the opened link's core as
+    `parent` (one level only, so links don't grow with each remix; deflate
+    makes the shared program nearly free). Unchanged sims re-share the same
+    link. The remix bar (`src/ui/share.ts`) shows "Remixed from …" and, for a
+    remix of a remix, its parent.
+  - Blocks are shared as the workspace JSON without block ids
+    (`stripBlockIds`), plus the generated code. Blocks from a link are shown
+    (and their code regenerated) before they run, so what runs is what the
+    blocks say. A model opened from a file can't be shared (the dialog says so).
+  - Changing the sim after opening a link removes `#s=` from the address
+    bar, so a reload keeps the change. Pasting a link into an open tab
+    reloads the page (`hashchange`).
+  - `__paiSim.programTrace()` records [time, rover xyz, qpos…] per physics
+    step from Run; the e2e uses it to check a shared sim drives identically.
+  - Typical links are 650–900 characters (blocks: ~1,000–1,400; remixes of
+    typical robots stay under 2,000).

@@ -14,6 +14,8 @@ import { isSoftwareRenderer } from "./render/software";
 import type { Controller } from "./control/controller";
 import { formatProgramError, type Language } from "./control/api";
 import { startInWorker } from "./control/host";
+import { decodeShare, payloadFromHash, remixOf, shareUrl, stripBlockIds, type ShareCore, type ShareState } from "./share/link";
+import { RemixBar, ShareDialog, type LinkResult } from "./ui/share";
 import "./style.css";
 
 /** Larger files are almost certainly not a single-file MJCF model. */
@@ -61,6 +63,11 @@ export interface TestHooks {
     /** False while a Python program waits for Python to load. */
     loaded: boolean;
   };
+  /**
+   * The sim's path since the program last started, one row per physics step
+   * (the first 2,000): [sim time, x, y, z of the "rover" body, ...all of qpos].
+   */
+  programTrace(): number[][];
 }
 
 declare global {
@@ -97,6 +104,7 @@ async function main(): Promise<void> {
     builderSpec: () => templateSpec("hauler"),
     cameraPos: () => [0, 0, 0],
     program: () => ({ state: "none", error: null, wheels: { left: 0, right: 0 }, time: 0, language: null, loaded: false }),
+    programTrace: () => [],
   });
 
   const status = $("#status");
@@ -105,20 +113,54 @@ async function main(): Promise<void> {
     const mj: Mujoco = await loadEngine({ locateFile: () => wasmUrl });
     const params = new URLSearchParams(location.search);
 
+    // A share link (#s=…) is the whole sim: it wins over ?scene= / ?env=.
+    // A broken one falls back to the default scene, with a message.
+    const payload = payloadFromHash(location.hash);
+    let opened: ShareState | null = null;
+    let linkError: string | null = null;
+    if (payload !== null) {
+      status.textContent = "Opening the shared sim…";
+      const read = await decodeShare(payload);
+      if (read.ok) opened = read.state;
+      else linkError = read.error;
+    }
+    const openedUrl = location.href;
+    // Pasting another link into this tab only changes the fragment: open it properly.
+    // (and going Back from a link's page to the plain site shows the plain site).
+    window.addEventListener("hashchange", (e) => {
+      if (payloadFromHash(location.hash) !== null || payloadFromHash(new URL(e.oldURL).hash) !== null) location.reload();
+    });
+
     const picker = $<HTMLSelectElement>("#scene-picker");
     for (const s of SCENES) picker.add(new Option(s.name, s.id));
 
     // ?env=<id> opens the builder's robot in an environment (with the
     // template that suits it); otherwise ?scene=<id> picks a bundled scene.
-    let envId = params.has("env") ? findEnv(params.get("env")).id : DEFAULT_ENV_ID;
-    const initialSpec = templateSpec(params.has("env") ? findEnv(envId).suggestedTemplate : "hauler");
-    const initialBuild = params.has("env") ? envScene(findEnv(envId), initialSpec) : null;
-    let cur: Current;
-    if (initialBuild?.ok) cur = makeCurrent(new Sim(mj, initialBuild.xml), BUILD_SCENE, envId);
-    else {
-      const initial = findScene(params.get("scene"));
-      cur = makeCurrent(new Sim(mj, initial.xml), initial.id, null);
+    const wantsEnv = payload === null && params.has("env");
+    let envId = wantsEnv ? findEnv(params.get("env")).id : DEFAULT_ENV_ID;
+    let initialSpec = templateSpec(wantsEnv ? findEnv(envId).suggestedTemplate : "hauler");
+    let first: Current | null = null;
+    if (opened?.robot) {
+      // Validated already, but a link must never stop the page from loading.
+      const built = envScene(findEnv(opened.env), opened.robot);
+      try {
+        if (!built.ok) throw new Error(built.errors.join(" "));
+        first = makeCurrent(new Sim(mj, built.xml), BUILD_SCENE, opened.env!);
+        envId = opened.env!;
+        initialSpec = opened.robot;
+      } catch (err) {
+        linkError = `The robot in this link can't be built: ${friendlyLoadError(err)}`;
+        opened = null;
+      }
+    } else if (wantsEnv) {
+      const built = envScene(findEnv(envId), initialSpec);
+      if (built.ok) first = makeCurrent(new Sim(mj, built.xml), BUILD_SCENE, envId);
     }
+    if (!first) {
+      const initial = findScene(opened?.scene ?? (payload === null ? params.get("scene") : null));
+      first = makeCurrent(new Sim(mj, initial.xml), initial.id, null);
+    }
+    let cur: Current = first;
 
     const envPicker = $<HTMLSelectElement>("#env-picker");
     // Shown while a scene other than "My robot" runs: picking any environment then loads the robot into it.
@@ -148,12 +190,26 @@ async function main(): Promise<void> {
     /** The running controller program, if any. It drives the wheels instead of the pad. */
     let program: Controller | null = null;
     let programFailure: string | null = null;
+    /** See TestHooks.programTrace. */
+    let trace: number[][] = [];
+    let traceBody = 0;
+    const TRACE_STEPS = 2000;
 
     const loop = new SimLoop(
       cur.sim,
       (s) => {
         if (goal && goalView) goal.update(goalView);
-        if (program) return program.beforeStep();
+        if (program) {
+          const go = program.beforeStep();
+          if (go !== false && trace.length < TRACE_STEPS) {
+            const x = s.data.xpos as ArrayLike<number>;
+            const q = s.data.qpos as ArrayLike<number>;
+            const row = [s.time, x[3 * traceBody]!, x[3 * traceBody + 1]!, x[3 * traceBody + 2]!];
+            for (let i = 0; i < q.length; i++) row.push(q[i]!);
+            trace.push(row);
+          }
+          return go;
+        }
         if (!cur.drive) return;
         const cmd = override ?? drive.cmd;
         const { left, right } = wheelSpeeds(cmd, cur.drive.maxSpeed);
@@ -172,10 +228,14 @@ async function main(): Promise<void> {
     const hint = $("#hint");
     const errorBox = $("#load-error");
     const errorText = $("#load-error-text");
+    const errorTitle = $("#load-error-title");
+    const errorSub = $("#load-error-sub");
     let lastError: string | null = null;
 
-    const showError = (msg: string) => {
+    const showError = (msg: string, kind: "model" | "link" = "model") => {
       lastError = msg;
+      errorTitle.textContent = kind === "link" ? "Couldn't open that link." : "Couldn't open that model.";
+      errorSub.textContent = kind === "link" ? "Showing the default scene instead." : "The previous scene is still running.";
       // Clear first so screen readers re-announce a repeated message.
       errorText.textContent = "";
       errorBox.hidden = true;
@@ -237,6 +297,8 @@ async function main(): Promise<void> {
       else url.searchParams.delete("scene");
       if (env && env !== DEFAULT_ENV_ID) url.searchParams.set("env", env);
       else url.searchParams.delete("env");
+      // The sim isn't the link's any more: a reload keeps what's showing.
+      url.hash = "";
       history.replaceState(null, "", url);
     };
 
@@ -332,6 +394,11 @@ async function main(): Promise<void> {
       if (e.key !== "Escape" || e.defaultPrevented || e.target instanceof HTMLSelectElement) return;
       // In Blockly's menus and field editors, Escape closes them, not the panel.
       if (e.target instanceof Element && e.target.closest(".blocklyWidgetDiv, .blocklyDropDownDiv")) return;
+      if (shareDialog.isOpen) {
+        e.preventDefault();
+        shareDialog.close();
+        return;
+      }
       if (builderOpen) {
         e.preventDefault();
         setBuilderOpen(false);
@@ -352,8 +419,9 @@ async function main(): Promise<void> {
       codePanelEl.hidden = !open;
       codeToggle.setAttribute("aria-expanded", String(open));
       document.body.classList.toggle("coding", open);
-      if (!moveFocus) return;
       // On touch screens, focusing the editor would pop up the keyboard over the sim.
+      if (open) code.shown();
+      if (!moveFocus) return;
       if (open) (window.matchMedia("(pointer: coarse)").matches ? code.firstControl : code.editor).focus();
       else codeToggle.focus();
     }
@@ -387,6 +455,8 @@ async function main(): Promise<void> {
       programCode = text;
       programLanguage = language;
       programLoaded = language === "javascript";
+      trace = [];
+      traceBody = Math.max(0, cur.sim.bodyId("rover"));
       const sim = cur.sim;
       const ctl: Controller = startInWorker(
         sim,
@@ -426,7 +496,49 @@ async function main(): Promise<void> {
       onRun: startProgram,
       onStop: () => stopProgram("Stopped."),
     });
+    if (opened?.program) code.restore(opened.program);
     syncUi();
+
+    // ---- Share + remix ---------------------------------------------------------
+    /** The sim as a link describes it, or why it can't be shared. */
+    const snapshot = (): ShareCore | string => {
+      const p = code.program();
+      const program = p.blocks ? { ...p, blocks: stripBlockIds(p.blocks) } : p;
+      if (cur.sceneId === BUILD_SCENE) return { v: 1, robot: builtSpec, env: cur.envId ?? DEFAULT_ENV_ID, program };
+      if (cur.sceneId === "custom") {
+        return "A model opened from a file can't go in a link yet. Pick “My robot” or one of the bundled scenes to share.";
+      }
+      return { v: 1, scene: cur.sceneId, program };
+    };
+    /** Where links point: this page without its query (the link holds everything). */
+    const siteUrl = () => location.origin + location.pathname;
+    const coreName = (c: ShareCore) => c.robot?.name ?? findScene(c.scene).name;
+    const shareDialog = new ShareDialog($("#share"), $<HTMLButtonElement>("#share-toggle"), {
+      makeLink: async (): Promise<LinkResult> => {
+        const core = snapshot();
+        if (typeof core === "string") return { ok: false, reason: core };
+        const state = remixOf(core, opened);
+        const url = await shareUrl(siteUrl(), state);
+        const parent = state.parent ? { name: coreName(state.parent), url: await shareUrl(siteUrl(), state.parent) } : null;
+        return { ok: true, url, remixOf: parent };
+      },
+    });
+    if (opened) {
+      const shared = opened;
+      new RemixBar($("#remix")).show({
+        name: coreName(shared),
+        url: openedUrl,
+        parent: shared.parent ? { name: coreName(shared.parent), url: await shareUrl(siteUrl(), shared.parent) } : null,
+        run: shared.program
+          ? () => {
+              // Blocks run as blocks: show them (Blockly needs to be on screen to start).
+              if (shared.program?.blocks && !codeOpen) setCodeOpen(true, false);
+              code.run();
+            }
+          : undefined,
+        afterDismiss: $<HTMLButtonElement>("#share-toggle"),
+      });
+    }
 
     picker.addEventListener("change", () => {
       loadSeq++;
@@ -570,7 +682,9 @@ async function main(): Promise<void> {
         language: program ? programLanguage : null,
         loaded: !!program && programLoaded,
       }),
+      programTrace: () => trace.map((r) => [...r]),
     } satisfies Partial<TestHooks>);
+    if (linkError) showError(linkError, "link");
     hooks.ready = true;
     status.hidden = true;
   } catch (err) {
