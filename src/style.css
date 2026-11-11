@@ -743,6 +743,133 @@ button:focus-visible {
   border-radius: 8px;
 }
 
+/* Share dialog: the link to the sim, top right over the viewport. */
+.share {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: min(420px, calc(100% - 24px));
+  padding: 10px 14px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #fff;
+  box-shadow: 0 6px 24px rgba(29, 34, 48, 0.16);
+  font-size: 14px;
+  z-index: 4;
+}
+
+.share[hidden],
+.remix[hidden],
+.share-link[hidden],
+.share-note[hidden] {
+  display: none;
+}
+
+.share-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.share-head h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+/* Focus lands on the heading when the dialog opens (for screen readers); no ring needed. */
+.share-head h2:focus {
+  outline: none;
+}
+
+.share-link label {
+  display: block;
+  margin: 8px 0 4px;
+  font-weight: 600;
+}
+
+.share-row {
+  display: flex;
+  gap: 8px;
+}
+
+.share-field {
+  flex: 1;
+  min-width: 0;
+  font: 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: #f7f8fa;
+}
+
+.share-field:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.share p {
+  margin: 6px 0 0;
+}
+
+.share-status {
+  font-weight: 600;
+}
+
+.share-status:empty {
+  display: none;
+}
+
+/* "Remixed from …": a strip under the header on pages opened from a link. */
+.remix {
+  display: flex;
+  align-items: center;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+  padding: 6px 16px;
+  padding-left: max(16px, env(safe-area-inset-left));
+  padding-right: max(16px, env(safe-area-inset-right));
+  border-bottom: 1px solid #f3c7ad;
+  background: #fff6ef;
+  font-size: 14px;
+}
+
+.remix-text {
+  flex: 1 1 320px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.remix a,
+.share a {
+  color: #b34d1b;
+}
+
+.remix-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.remix-buttons button {
+  padding: 4px 10px;
+}
+
+.share-icon {
+  display: none;
+  vertical-align: -3px;
+}
+
+#share-toggle[aria-expanded="true"] {
+  border-color: var(--accent);
+  color: #b34d1b;
+}
+
+.share-row .c-run,
+.remix-buttons .c-run {
+  flex: none;
+}
+
 /* Narrow phones: keep the header's four buttons on one row with the name. */
 @media (max-width: 420px) {
   .tag {
@@ -751,17 +878,32 @@ button:focus-visible {
 }
 
 @media (max-width: 600px) {
+  /* Tight enough that the name and five buttons share one row at 390 px, even in wide fonts (DejaVu Sans on Linux). */
   .bar {
     flex-wrap: wrap;
-    gap: 8px 10px;
-    padding: 8px 12px;
+    gap: 8px 6px;
+    padding: 8px 10px;
   }
   .actions {
     margin-left: auto;
-    gap: 6px;
+    gap: 4px;
   }
   .actions button {
-    padding: 6px 10px;
+    flex: none;
+    padding: 6px 7px;
+  }
+  /* Phones: Share is an icon (its name stays "Share" for screen readers), so the buttons fit beside the name. */
+  .share-icon {
+    display: inline-block;
+  }
+  .share-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .scene-controls {
     order: 3;

@@ -24,22 +24,31 @@
       <div class="actions">
         <button id="builder-toggle" type="button" aria-expanded="false" aria-controls="builder">Build</button>
         <button id="code-toggle" type="button" aria-expanded="false" aria-controls="code">Code</button>
+        <button id="share-toggle" type="button" aria-expanded="false" aria-controls="share" title="Share a link to this sim"><svg class="share-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 15V3" /><path d="M7 8l5-5 5 5" /><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7" /></svg><span class="share-label">Share</span></button>
         <button id="pause" type="button">Pause</button>
         <button id="reset" type="button">Reset</button>
       </div>
     </header>
+    <div id="remix" class="remix" role="region" aria-label="Remix" hidden></div>
     <div class="workspace">
       <main id="viewport" class="viewport">
         <p id="status" class="status">Loading…</p>
         <div id="load-error" class="load-error" role="alert" hidden>
-          <p><strong>Couldn't open that model.</strong> <span id="load-error-text"></span></p>
-          <p class="load-error-sub">The previous scene is still running.</p>
+          <p><strong id="load-error-title">Couldn't open that model.</strong> <span id="load-error-text"></span></p>
+          <p id="load-error-sub" class="load-error-sub">The previous scene is still running.</p>
           <button id="load-error-close" type="button" aria-label="Dismiss error">Dismiss</button>
         </div>
         <div id="goal" class="goal" hidden>
           <p class="goal-line"><strong id="goal-env"></strong> <span id="goal-text"></span> <span id="goal-timer" class="goal-timer" aria-hidden="true"></span></p>
           <p id="goal-tip" class="goal-tip" hidden><span id="goal-tip-text"></span> <button id="goal-tip-use" type="button"></button></p>
           <p id="goal-live" class="visually-hidden" aria-live="polite"></p>
+        </div>
+        <div id="share" class="share" role="dialog" aria-labelledby="share-title" data-no-drive hidden>
+          <div class="share-head">
+            <h2 id="share-title">Share this sim</h2>
+            <button type="button" data-share-close aria-label="Close sharing">Close</button>
+          </div>
+          <div data-share-body></div>
         </div>
         <div id="drop-overlay" class="drop-overlay" hidden>Drop a MuJoCo .xml file to open it</div>
         <div id="drive-pad" class="pad" role="group" aria-label="Drive controls">
